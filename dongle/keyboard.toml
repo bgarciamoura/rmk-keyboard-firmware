@@ -33,8 +33,8 @@ keymap = [
     # Layer 0 — Base (QWERTY com home-row mods)
     [
         ["Grave",             "Q", "W", "E", "R", "T",                                                 "Y",             "U",             "I",              "O",            "P",                           "Quote"],
-        ["Tab",               "A", "MT(S, LCtrl, HRM)", "MT(D, LShift, HRM)", "MT(F, LAlt, HRM)", "MT(G, LGui, HRM)",   "MT(H, RGui, HRM)", "MT(J, RAlt, HRM)", "MT(K, RShift, HRM)", "MT(L, RCtrl, HRM)", "MT(Semicolon, RCtrl, HRM)", "LT(3, Minus)"],
-        ["MT(Escape, LCtrl, HRM)", "Z", "X", "C", "V", "B",                                            "N",             "M",             "Comma",          "Dot",          "Slash",                       "Backslash"],
+        ["Tab",               "A", "MT(S, LCtrl)", "MT(D, LShift)", "MT(F, LAlt)", "MT(G, LGui)",   "MT(H, RGui)", "MT(J, RAlt)", "MT(K, RShift)", "MT(L, RCtrl)", "MT(Semicolon, RCtrl)", "LT(3, Minus)"],
+        ["MT(Escape, LCtrl)", "Z", "X", "C", "V", "B",                                            "N",             "M",             "Comma",          "Dot",          "Slash",                       "Backslash"],
         ["No", "MouseBtn1", "No", "LT(2, Backspace)", "LT(1, Space)", "No",                            "No", "No", "LT(2, Enter)", "No", "LT(1, Delete)", "No"],
     ],
     # Layer 1 — Symbols + Numbers
@@ -47,9 +47,9 @@ keymap = [
     # Layer 2 — Navigation / F-keys / Media / Mouse buttons
     [
         ["Escape",      "F1",     "F2",   "F3",   "F4",    "F5",                                    "F6",             "F7",         "F8",         "F9",             "F10",            "F11"],
-        ["PrintScreen", "F12",    "Home", "Up",   "End",   "MouseBtn4",                             "Mute",           "VolumeDown", "VolumeUp",   "MediaNextTrack", "MediaPlayPause", "MediaPrevTrack"],
+        ["PrintScreen", "F12",    "Home", "Up",   "End",   "MouseBtn4",                             "AudioMute",           "AudioVolDown", "AudioVolUp",   "MediaNextTrack", "MediaPlayPause", "MediaPrevTrack"],
         ["LCtrl",       "LShift", "Left", "Down", "Right", "MouseBtn5",                             "MouseWheelDown", "MouseBtn1",  "MouseBtn2",  "MouseWheelUp",   "No",             "MouseBtn3"],
-        ["No", "CapsLock", "No", "MouseBtn1", "MouseBtn2", "No",   "No", "No", "_", "No", "Mute", "No"],
+        ["No", "CapsLock", "No", "MouseBtn1", "MouseBtn2", "No",   "No", "No", "_", "No", "AudioMute", "No"],
     ],
     # Layer 3 — RGB / Brightness (maior parte vazia; RGB não suportado nesta build)
     [
@@ -128,18 +128,12 @@ row_pins = ["GPIO13", "GPIO14", "GPIO15", "GPIO16"]
 col_pins = ["GPIO17", "GPIO18", "GPIO19", "GPIO20", "GPIO21", "GPIO33"]
 
 # ===== Behavior migrado do Charybdis_vial_0.3.vil =====
-
-[behavior.morse]
-# Defaults para LT / MT sem perfil explícito.
-enable_flow_tap = true
-prior_idle_time = "120ms"
-hold_on_other_press = true
-hold_timeout = "250ms"
-gap_timeout = "250ms"
-
-[behavior.morse.profiles]
-# Perfil HRM usado pelas home-row mods.
-HRM = { permissive_hold = true, unilateral_tap = true, hold_timeout = "250ms", gap_timeout = "250ms" }
+#
+# WORKAROUND F1: [behavior.morse] removido temporariamente. O macro rmk_central
+# expande os timeouts ("250ms" etc.) como `embassy_time::Duration`, mas o crate
+# `embassy_time` não está no escopo do template do upstream user_build.yml para
+# ESP32-S3 — resulta em E0433 (failed to resolve: embassy_time). Os MT()/LT()
+# do keymap ficam com defaults do RMK. Readicionar em F2 (Cargo.toml próprio).
 
 # Macro 0: Ctrl+Shift+C (copy em terminais)
 [[behavior.macro.macros]]
