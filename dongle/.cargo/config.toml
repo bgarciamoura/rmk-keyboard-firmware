@@ -12,6 +12,11 @@ rustflags = [
 
 [env]
 ESP_LOG = "info"
+# A macro #[rmk_keyboard] lê o caminho do keyboard.toml via esta env var em
+# tempo de compilação. `relative = true` resolve a partir da raiz do crate
+# (onde este .cargo/ está — ou seja, dongle/).
+KEYBOARD_TOML_PATH = { value = "keyboard.toml", relative = true }
+VIAL_JSON_PATH = { value = "vial.json", relative = true }
 
 # Xtensa only:
 # Needed for nightly, until llvm upstream has support for Rust Xtensa.
