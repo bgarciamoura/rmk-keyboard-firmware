@@ -8,7 +8,8 @@
 # pinos SPI da sua trackball. `cpi` é sensibilidade do sensor (400–12000).
 
 [keyboard]
-name = "Charybdis Right"
+# Para split peripherals, o `[[bin]]` auto-gerado é `peripheral`.
+name = "peripheral"
 product_name = "Charybdis Right"
 vendor_id = 0x4c4b
 product_id = 0x4645

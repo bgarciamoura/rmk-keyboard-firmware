@@ -9,7 +9,12 @@
 # remover o bloco [split.central.matrix]. Primeiro spike deve validar isso.
 
 [keyboard]
-name = "Charybdis 3x6 Wireless"
+# `name` vira o nome do Cargo package (package normalizado). O upstream
+# user_build.yml chama `rmkit get-project-name` para descobrir o caminho do
+# binário, mas em split centrals o `[[bin]]` auto-gerado se chama `central`.
+# Batendo name = "central" aqui, o path bate. `product_name` continua sendo o
+# que o host vê via USB HID.
+name = "central"
 product_name = "Charybdis 3x6 Wireless"
 vendor_id = 0x4c4b
 product_id = 0x4643

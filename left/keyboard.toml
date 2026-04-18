@@ -9,7 +9,8 @@
 # `row2col = true` em [split.peripheral.matrix] se sua PCB usar o oposto.
 
 [keyboard]
-name = "Charybdis Left"
+# Para split peripherals, o `[[bin]]` auto-gerado é `peripheral`.
+name = "peripheral"
 product_name = "Charybdis Left"
 vendor_id = 0x4c4b
 product_id = 0x4644
