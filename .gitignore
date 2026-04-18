@@ -1,0 +1,20 @@
+# Firmware build artifacts (baixados do CI ou gerados localmente)
+*.bin
+*.uf2
+*.hex
+*.elf
+
+# Cargo / Rust (F2+)
+target/
+**/target/
+
+# Ferramentas de sistema
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# IDE
+.idea/
+.vscode/launch.json
+.vscode/tasks.json
