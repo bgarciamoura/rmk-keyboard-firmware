@@ -1,0 +1,99 @@
+# Documentation: https://rmk.rs/docs/configuration.html
+#
+# Role: PERIPHERAL[0] / METADE ESQUERDA
+# Hardware: nRF52840 (alimentada por bateria)
+# USB: desligado. Scan de matriz + envio BLE para a central (dongle).
+#
+# TODO (usuário): preencher PIN_XX com o wiring físico real da sua PCB.
+# Charybdis típico usa matriz col2row; manter default, ou adicionar
+# `row2col = true` em [split.peripheral.matrix] se sua PCB usar o oposto.
+
+[keyboard]
+name = "Charybdis Left"
+product_name = "Charybdis Left"
+vendor_id = 0x4c4b
+product_id = 0x4644
+manufacturer = "RMK"
+chip = "nrf52840"
+usb_enable = false
+
+# O bloco [layout] abaixo é idêntico ao do dongle — mantém os peripherals
+# compiláveis contra o mesmo schema. A central é quem realmente interpreta
+# o keymap; aqui serve de fallback.
+[layout]
+rows = 4
+cols = 12
+layers = 6
+keymap = [
+    # Layer 0 — Base
+    [
+        ["Grave",             "Q", "W", "E", "R", "T",                                                 "Y",             "U",             "I",              "O",            "P",                           "Quote"],
+        ["Tab",               "A", "MT(S, LCtrl, HRM)", "MT(D, LShift, HRM)", "MT(F, LAlt, HRM)", "MT(G, LGui, HRM)",   "MT(H, RGui, HRM)", "MT(J, RAlt, HRM)", "MT(K, RShift, HRM)", "MT(L, RCtrl, HRM)", "MT(Semicolon, RCtrl, HRM)", "LT(3, Minus)"],
+        ["MT(Escape, LCtrl, HRM)", "Z", "X", "C", "V", "B",                                            "N",             "M",             "Comma",          "Dot",          "Slash",                       "Backslash"],
+        ["No", "MouseBtn1", "No", "LT(2, Backspace)", "LT(1, Space)", "No",                            "No", "No", "LT(2, Enter)", "No", "LT(1, Delete)", "No"],
+    ],
+    # Layer 1 — Symbols
+    [
+        ["Escape",  "WM(Kc1, LShift)", "WM(Slash, LShift)", "WM(Kc6, LShift)", "WM(Quote, LShift)", "Quote",                           "Kc7",  "Kc8",  "Kc9", "Minus", "WM(Kc9, LShift)", "WM(Kc0, RShift)"],
+        ["KpPlus",  "Grave",           "WM(Kc9, LShift)",   "WM(Kc0, LShift)", "LeftBracket",       "RightBracket",                    "Kc4",  "Kc5",  "Kc6", "Equal", "LeftBracket",     "RightBracket"],
+        ["LShift",  "WM(Kc1, LShift)", "WM(Comma, LShift)", "WM(Dot, LShift)", "WM(LeftBracket, LShift)", "WM(RightBracket, LShift)",  "Kc1",  "Kc2",  "Kc3", "Dot",   "WM(LeftBracket, LShift)", "WM(RightBracket, LShift)"],
+        ["No", "Macro1", "No", "_", "Macro0", "No",   "No", "No", "_", "No", "Kc0", "No"],
+    ],
+    # Layer 2 — Nav / F / Media
+    [
+        ["Escape",      "F1",     "F2",   "F3",   "F4",    "F5",                                    "F6",             "F7",         "F8",         "F9",             "F10",            "F11"],
+        ["PrintScreen", "F12",    "Home", "Up",   "End",   "MouseBtn4",                             "Mute",           "VolumeDown", "VolumeUp",   "MediaNextTrack", "MediaPlayPause", "MediaPrevTrack"],
+        ["LCtrl",       "LShift", "Left", "Down", "Right", "MouseBtn5",                             "MouseWheelDown", "MouseBtn1",  "MouseBtn2",  "MouseWheelUp",   "No",             "MouseBtn3"],
+        ["No", "CapsLock", "No", "MouseBtn1", "MouseBtn2", "No",   "No", "No", "_", "No", "Mute", "No"],
+    ],
+    # Layer 3 — RGB / Brightness
+    [
+        ["TO(5)", "No", "No", "No", "No", "No",    "No", "BrightnessUp", "No",   "BrightnessDown", "BrightnessUp", "No"],
+        ["No",    "No", "No", "No", "No", "No",    "No", "No",           "No",   "No",             "No",           "No"],
+        ["No",    "No", "No", "No", "No", "No",    "No", "No",           "No",   "No",             "No",           "No"],
+        ["No", "_", "No", "_", "No", "No",   "No", "No", "No", "No", "_", "No"],
+    ],
+    # Layer 4 — Mouse
+    [
+        ["Escape", "No", "No",            "No",        "No",              "No",    "No", "No", "No", "No",         "No",         "No"],
+        ["TO(0)",  "No", "No",            "No",        "No",              "No",    "No", "No", "No", "MouseBtn5",  "MouseBtn4",  "No"],
+        ["LCtrl",  "No", "MouseWheelUp", "MouseBtn3", "MouseWheelDown", "No",   "MouseWheelDown", "MouseBtn1", "MouseBtn2", "MouseWheelUp", "No", "No"],
+        ["No", "Backspace", "No", "MouseBtn1", "MouseBtn2", "No",   "No", "No", "MouseBtn1", "No", "Delete", "No"],
+    ],
+    # Layer 5 — Gaming
+    [
+        ["Escape", "Q", "W", "E", "R", "T",                   "Y", "U", "I",     "O",   "P",            "TO(0)"],
+        ["Tab",    "A", "S", "D", "F", "G",                   "H", "J", "K",     "L",   "Semicolon",    "LAlt"],
+        ["LCtrl",  "Z", "X", "C", "V", "B",                   "N", "M", "Comma", "Dot", "Slash",        "RShift"],
+        ["No", "MouseBtn1", "No", "Backspace", "Space", "No",   "No", "No", "Enter", "No", "MouseBtn2", "No"],
+    ],
+]
+
+[ble]
+enabled = true
+battery_adc_pin = "vddh"
+adc_divider_measured = 2000
+adc_divider_total = 2806
+
+[split]
+connection = "ble"
+
+[split.central]
+rows = 1
+cols = 1
+row_offset = 0
+col_offset = 0
+ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x01]
+
+[[split.peripheral]]
+rows = 4
+cols = 6
+row_offset = 0
+col_offset = 0
+ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x02]
+
+[split.peripheral.matrix]
+matrix_type = "normal"
+# TODO: substituir pelos pinos reais da PCB esquerda
+row_pins = ["P0_XX", "P0_XX", "P0_XX", "P0_XX"]
+col_pins = ["P0_XX", "P0_XX", "P0_XX", "P0_XX", "P0_XX", "P0_XX"]

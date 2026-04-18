@@ -7,7 +7,24 @@ on:
 
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - role: dongle
+            toml: dongle/keyboard.toml
+            vial: dongle/vial.json
+          # Jobs das metades desabilitados até o wiring físico das nRF52840
+          # estar definido (pinos row/col reais). Remover comentário quando P0
+          # do TODO.md estiver resolvido.
+          # - role: left
+          #   toml: left/keyboard.toml
+          #   vial: dongle/vial.json
+          # - role: right
+          #   toml: right/keyboard.toml
+          #   vial: dongle/vial.json
+    name: build-${{ matrix.role }}
     uses: haobogu/rmk/.github/workflows/user_build.yml@main
     with:
-      keyboard_toml_path: "keyboard.toml"
-      vial_json_path: "vial.json"
+      keyboard_toml_path: ${{ matrix.toml }}
+      vial_json_path: ${{ matrix.vial }}

@@ -1,0 +1,142 @@
+# Documentation: https://rmk.rs/docs/configuration.html
+#
+# Role: DONGLE / CENTRAL
+# Hardware: ESP32-S3
+# USB: sempre plugado no host. Enumera como HID Keyboard + Mouse.
+# Não tem matriz local — somente recebe eventos BLE dos dois peripherals.
+#
+# TODO (usuário): se RMK rejeitar central sem matriz, trocar rows/cols = 1 e
+# remover o bloco [split.central.matrix]. Primeiro spike deve validar isso.
+
+[keyboard]
+name = "Charybdis 3x6 Wireless"
+product_name = "Charybdis 3x6 Wireless"
+vendor_id = 0x4c4b
+product_id = 0x4643
+manufacturer = "RMK"
+chip = "esp32s3"
+usb_enable = true
+
+[layout]
+rows = 4
+cols = 12
+layers = 6
+# Keymap traduzido de Charybdis_vial_0.3.vil (2026-04-17).
+# Convenção física de colunas:
+#   0..5  = metade esquerda (outside → inside, mesma ordem do .vil esquerdo)
+#   6..11 = metade direita (inside → outside — já desespelhada do .vil direito)
+# Thumbs físicos: esquerda cols 1, 3, 4; direita cols 8, 10. Restante row 3 = "No".
+# TODO (usuário): alguns nomes de keycode (Mouse*, Media*, Brightness*) foram
+# inferidos a partir da convenção QMK→RMK; validar contra a enum KeyCode do RMK
+# no primeiro build e renomear se o compilador rejeitar.
+keymap = [
+    # Layer 0 — Base (QWERTY com home-row mods)
+    [
+        ["Grave",             "Q", "W", "E", "R", "T",                                                 "Y",             "U",             "I",              "O",            "P",                           "Quote"],
+        ["Tab",               "A", "MT(S, LCtrl, HRM)", "MT(D, LShift, HRM)", "MT(F, LAlt, HRM)", "MT(G, LGui, HRM)",   "MT(H, RGui, HRM)", "MT(J, RAlt, HRM)", "MT(K, RShift, HRM)", "MT(L, RCtrl, HRM)", "MT(Semicolon, RCtrl, HRM)", "LT(3, Minus)"],
+        ["MT(Escape, LCtrl, HRM)", "Z", "X", "C", "V", "B",                                            "N",             "M",             "Comma",          "Dot",          "Slash",                       "Backslash"],
+        ["No", "MouseBtn1", "No", "LT(2, Backspace)", "LT(1, Space)", "No",                            "No", "No", "LT(2, Enter)", "No", "LT(1, Delete)", "No"],
+    ],
+    # Layer 1 — Symbols + Numbers
+    [
+        ["Escape",  "WM(Kc1, LShift)", "WM(Slash, LShift)", "WM(Kc6, LShift)", "WM(Quote, LShift)", "Quote",                           "Kc7",  "Kc8",  "Kc9", "Minus", "WM(Kc9, LShift)", "WM(Kc0, RShift)"],
+        ["KpPlus",  "Grave",           "WM(Kc9, LShift)",   "WM(Kc0, LShift)", "LeftBracket",       "RightBracket",                    "Kc4",  "Kc5",  "Kc6", "Equal", "LeftBracket",     "RightBracket"],
+        ["LShift",  "WM(Kc1, LShift)", "WM(Comma, LShift)", "WM(Dot, LShift)", "WM(LeftBracket, LShift)", "WM(RightBracket, LShift)",  "Kc1",  "Kc2",  "Kc3", "Dot",   "WM(LeftBracket, LShift)", "WM(RightBracket, LShift)"],
+        ["No", "Macro1", "No", "_", "Macro0", "No",   "No", "No", "_", "No", "Kc0", "No"],
+    ],
+    # Layer 2 — Navigation / F-keys / Media / Mouse buttons
+    [
+        ["Escape",      "F1",     "F2",   "F3",   "F4",    "F5",                                    "F6",             "F7",         "F8",         "F9",             "F10",            "F11"],
+        ["PrintScreen", "F12",    "Home", "Up",   "End",   "MouseBtn4",                             "Mute",           "VolumeDown", "VolumeUp",   "MediaNextTrack", "MediaPlayPause", "MediaPrevTrack"],
+        ["LCtrl",       "LShift", "Left", "Down", "Right", "MouseBtn5",                             "MouseWheelDown", "MouseBtn1",  "MouseBtn2",  "MouseWheelUp",   "No",             "MouseBtn3"],
+        ["No", "CapsLock", "No", "MouseBtn1", "MouseBtn2", "No",   "No", "No", "_", "No", "Mute", "No"],
+    ],
+    # Layer 3 — RGB / Brightness (maior parte vazia; RGB não suportado nesta build)
+    [
+        ["TO(5)", "No", "No", "No", "No", "No",    "No", "BrightnessUp", "No",   "BrightnessDown", "BrightnessUp", "No"],
+        ["No",    "No", "No", "No", "No", "No",    "No", "No",           "No",   "No",             "No",           "No"],
+        ["No",    "No", "No", "No", "No", "No",    "No", "No",           "No",   "No",             "No",           "No"],
+        ["No", "_", "No", "_", "No", "No",   "No", "No", "No", "No", "_", "No"],
+    ],
+    # Layer 4 — Mouse
+    [
+        ["Escape", "No", "No",            "No",        "No",              "No",    "No", "No", "No", "No",         "No",         "No"],
+        ["TO(0)",  "No", "No",            "No",        "No",              "No",    "No", "No", "No", "MouseBtn5",  "MouseBtn4",  "No"],
+        ["LCtrl",  "No", "MouseWheelUp", "MouseBtn3", "MouseWheelDown", "No",   "MouseWheelDown", "MouseBtn1", "MouseBtn2", "MouseWheelUp", "No", "No"],
+        ["No", "Backspace", "No", "MouseBtn1", "MouseBtn2", "No",   "No", "No", "MouseBtn1", "No", "Delete", "No"],
+    ],
+    # Layer 5 — Gaming (QWERTY plano, sem home-row mods)
+    [
+        ["Escape", "Q", "W", "E", "R", "T",                   "Y", "U", "I",     "O",   "P",            "TO(0)"],
+        ["Tab",    "A", "S", "D", "F", "G",                   "H", "J", "K",     "L",   "Semicolon",    "LAlt"],
+        ["LCtrl",  "Z", "X", "C", "V", "B",                   "N", "M", "Comma", "Dot", "Slash",        "RShift"],
+        ["No", "MouseBtn1", "No", "Backspace", "Space", "No",   "No", "No", "Enter", "No", "MouseBtn2", "No"],
+    ],
+]
+
+[ble]
+enabled = true
+
+[split]
+connection = "ble"
+
+[split.central]
+# Central (dongle) não tem teclas físicas, mas RMK pode rejeitar 0x0.
+# Usamos 1x1 sem bloco [split.central.matrix] para representar "nenhuma matriz real".
+# Se upstream aceitar 0x0, voltar; se rejeitar 1x1 também, criar um
+# [split.central.matrix] dummy apontando para pinos NÃO-usados do ESP32-S3.
+rows = 1
+cols = 1
+row_offset = 0
+col_offset = 0
+ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x01]
+
+# Peripheral 0 = metade esquerda (sem trackball)
+[[split.peripheral]]
+rows = 4
+cols = 6
+row_offset = 0
+col_offset = 0
+ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x02]
+
+# Peripheral 1 = metade direita (com trackball PMW3360)
+[[split.peripheral]]
+rows = 4
+cols = 6
+row_offset = 0
+col_offset = 6
+ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x03]
+
+# ===== Behavior migrado do Charybdis_vial_0.3.vil =====
+
+[behavior.morse]
+# Defaults para LT / MT sem perfil explícito.
+enable_flow_tap = true
+prior_idle_time = "120ms"
+hold_on_other_press = true
+hold_timeout = "250ms"
+gap_timeout = "250ms"
+
+[behavior.morse.profiles]
+# Perfil HRM usado pelas home-row mods.
+HRM = { permissive_hold = true, unilateral_tap = true, hold_timeout = "250ms", gap_timeout = "250ms" }
+
+# Macro 0: Ctrl+Shift+C (copy em terminais)
+[[behavior.macro.macros]]
+operations = [
+  { operation = "down", keycode = "LCtrl" },
+  { operation = "down", keycode = "LShift" },
+  { operation = "tap",  keycode = "C" },
+  { operation = "up",   keycode = "LShift" },
+  { operation = "up",   keycode = "LCtrl" },
+]
+
+# Macro 1: Ctrl+Shift+V (paste em terminais)
+[[behavior.macro.macros]]
+operations = [
+  { operation = "down", keycode = "LCtrl" },
+  { operation = "down", keycode = "LShift" },
+  { operation = "tap",  keycode = "V" },
+  { operation = "up",   keycode = "LShift" },
+  { operation = "up",   keycode = "LCtrl" },
+]
