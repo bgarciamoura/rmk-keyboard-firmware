@@ -27,16 +27,19 @@ Objetivo alcançado em run `24594377654` (commit `fe383a8`): `firmware_bin` arti
 
 ---
 
-## F2 — Dongle vira projeto Rust (habilita display)
+## F2 — Dongle vira projeto Rust (habilita display) ✅
 
-**Plano detalhado**: [`docs/F2-plan.md`](docs/F2-plan.md) contém o conteúdo completo de cada arquivo, ordem de execução, riscos e definition of done.
+CI verde no commit `1634620` (run `24596349354`), workflow paralelo `build-f2.yml` produzindo o artifact `dongle-f2-bin`.
 
-Resumo:
-
-- [ ] Gerar `dongle/Cargo.toml`, `dongle/src/main.rs`, `dongle/.cargo/config.toml`, `dongle/rust-toolchain.toml`, `dongle/partitions.csv`, `dongle/build.rs`
-- [ ] Reescrever `.github/workflows/build.yml` com job `build-dongle` custom (espup + cargo + espflash save-image)
-- [ ] Peripherals continuam com `if: false` até P-pendentes de wiring resolverem
-- [ ] Validar que o `dongle.bin` novo enumera igual ao F1 (sem regressão)
+- [x] `dongle/Cargo.toml` — rmk em git main (crates.io 0.7 não tem feature `vial`), deps esp-rs com `[patch.crates-io]` pin em commit `20ed2bc`
+- [x] `dongle/src/central.rs` — `#[rmk_keyboard]` via `rmk::macros::rmk_keyboard`, panic handler linkado com `use esp_backtrace as _;`
+- [x] `dongle/.cargo/config.toml` — target xtensa, espflash runner, `KEYBOARD_TOML_PATH`/`VIAL_JSON_PATH` no env (exigido pela macro)
+- [x] `dongle/rust-toolchain.toml` — channel `esp`
+- [x] `dongle/build.rs` — comprime `vial.json` em XZ, gera `VIAL_KEYBOARD_DEF/ID` em `$OUT_DIR/config_generated.rs`, seta `-Tlinkall.x` como linker arg
+- [x] `.github/workflows/build-f2.yml` — workflow paralelo, não toca em `build.yml`; F1 e F2 convivem
+- [ ] **Próximo passo seu**: baixar `dongle-f2-bin` do run `24596349354` e flashar pra confirmar zero regressão vs F1
+- [ ] Após confirmado: consolidar — deletar `build.yml` (F1), renomear `build-f2.yml` → `build.yml`, remover hacks do F1 em `keyboard.toml` (`[split.central.matrix]` dummy, `[split.peripheral.matrix]` dummy, `name = "central"`), readicionar `[behavior.morse]`
+- [ ] Re-investigar sintaxe atual de `[[behavior.macro.macros]]` em rmk main e re-adicionar M0 (Ctrl+Shift+C) / M1 (Ctrl+Shift+V)
 
 ---
 
