@@ -17,17 +17,6 @@ manufacturer = "RMK"
 chip = "esp32s3"
 usb_enable = true
 
-# BUGFIX rmkit 0.6.0: o upstream user_build.yml instala rmk-config 0.6.0 que ainda
-# exige um bloco [matrix] mesmo em split centrals. Apesar da doc oficial dizer que
-# [matrix] e [split] são mutuamente exclusivos, o parser crashla com
-# "missing field `matrix`" sem este bloco. O RMK library em tempo de build
-# prioriza [split] quando ambos estão presentes, então o [matrix] abaixo é ignorado.
-# Remover quando rmkit publicar versão > 0.6.0 com split-only support.
-[matrix]
-matrix_type = "normal"
-input_pins  = ["GPIO1"]
-output_pins = ["GPIO2"]
-
 [layout]
 rows = 4
 cols = 12
@@ -92,15 +81,20 @@ enabled = true
 connection = "ble"
 
 [split.central]
-# Central (dongle) não tem teclas físicas, mas RMK pode rejeitar 0x0.
-# Usamos 1x1 sem bloco [split.central.matrix] para representar "nenhuma matriz real".
-# Se upstream aceitar 0x0, voltar; se rejeitar 1x1 também, criar um
-# [split.central.matrix] dummy apontando para pinos NÃO-usados do ESP32-S3.
 rows = 1
 cols = 1
 row_offset = 0
 col_offset = 0
 ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x01]
+
+# SplitBoardConfig do rmk-config 0.6.0 exige matrix não-opcional. O dongle não
+# tem teclas físicas, mas precisamos de pinos placeholder para o parser aceitar.
+# Em runtime o scanner vai existir para 1 tecla fantasma que nunca aperta.
+# Remover em F2 quando sairmos do pipeline config-only.
+[split.central.matrix]
+matrix_type = "normal"
+row_pins = ["GPIO1"]
+col_pins = ["GPIO2"]
 
 # Peripheral 0 = metade esquerda (sem trackball)
 [[split.peripheral]]

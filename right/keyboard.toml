@@ -17,14 +17,6 @@ chip = "nrf52840"
 usb_enable = false
 
 # Mesmo [layout] do dongle e do left — mantém schema compilável.
-# BUGFIX rmkit 0.6.0: exige [matrix] mesmo em split. Ignorado em runtime pelo RMK
-# quando [split] está presente. Pinos apenas placeholders — esta peripheral usa
-# [split.peripheral.matrix] abaixo para o scan real.
-[matrix]
-matrix_type = "normal"
-input_pins  = ["P0_02"]
-output_pins = ["P0_03"]
-
 [layout]
 rows = 4
 cols = 12
@@ -89,6 +81,13 @@ cols = 1
 row_offset = 0
 col_offset = 0
 ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x01]
+
+# Placeholder exigido por rmk-config 0.6.0 em SplitBoardConfig. Pinos do dongle
+# (ESP32-S3); a metade direita em si usa [split.peripheral.matrix] abaixo.
+[split.central.matrix]
+matrix_type = "normal"
+row_pins = ["GPIO1"]
+col_pins = ["GPIO2"]
 
 [[split.peripheral]]
 rows = 4
