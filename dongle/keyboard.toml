@@ -104,6 +104,14 @@ row_offset = 0
 col_offset = 0
 ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x02]
 
+# Placeholder exigido por rmk-config 0.6.0 (SplitBoardConfig.matrix é não-Option).
+# O dongle não scaneia a matriz da esquerda — isso acontece em left/keyboard.toml.
+# Estes pinos são dummy do ESP32-S3 e nunca são acionados.
+[split.peripheral.matrix]
+matrix_type = "normal"
+row_pins = ["GPIO3", "GPIO4", "GPIO5", "GPIO6"]
+col_pins = ["GPIO7", "GPIO8", "GPIO9", "GPIO10", "GPIO11", "GPIO12"]
+
 # Peripheral 1 = metade direita (com trackball PMW3360)
 [[split.peripheral]]
 rows = 4
@@ -111,6 +119,13 @@ cols = 6
 row_offset = 0
 col_offset = 6
 ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x03]
+
+# Placeholder idem ao de cima, para a metade direita. Pinos distintos para
+# evitar ambiguidade no parser. Nunca são acionados.
+[split.peripheral.matrix]
+matrix_type = "normal"
+row_pins = ["GPIO13", "GPIO14", "GPIO15", "GPIO16"]
+col_pins = ["GPIO17", "GPIO18", "GPIO19", "GPIO20", "GPIO21", "GPIO33"]
 
 # ===== Behavior migrado do Charybdis_vial_0.3.vil =====
 
