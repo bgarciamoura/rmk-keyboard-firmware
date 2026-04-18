@@ -17,6 +17,17 @@ manufacturer = "RMK"
 chip = "esp32s3"
 usb_enable = true
 
+# BUGFIX rmkit 0.6.0: o upstream user_build.yml instala rmk-config 0.6.0 que ainda
+# exige um bloco [matrix] mesmo em split centrals. Apesar da doc oficial dizer que
+# [matrix] e [split] são mutuamente exclusivos, o parser crashla com
+# "missing field `matrix`" sem este bloco. O RMK library em tempo de build
+# prioriza [split] quando ambos estão presentes, então o [matrix] abaixo é ignorado.
+# Remover quando rmkit publicar versão > 0.6.0 com split-only support.
+[matrix]
+matrix_type = "normal"
+input_pins  = ["GPIO1"]
+output_pins = ["GPIO2"]
+
 [layout]
 rows = 4
 cols = 12

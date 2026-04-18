@@ -20,6 +20,14 @@ usb_enable = false
 # O bloco [layout] abaixo é idêntico ao do dongle — mantém os peripherals
 # compiláveis contra o mesmo schema. A central é quem realmente interpreta
 # o keymap; aqui serve de fallback.
+# BUGFIX rmkit 0.6.0: exige [matrix] mesmo em split. Ignorado em runtime pelo RMK
+# quando [split] está presente. Pinos apenas placeholders — esta peripheral usa
+# [split.peripheral.matrix] abaixo para o scan real.
+[matrix]
+matrix_type = "normal"
+input_pins  = ["P0_02"]
+output_pins = ["P0_03"]
+
 [layout]
 rows = 4
 cols = 12

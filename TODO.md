@@ -22,17 +22,14 @@ Objetivo: `git push` produzir um `dongle.bin` flasheável sem erros, via upstrea
 
 ## F2 — Dongle vira projeto Rust (habilita display)
 
-Objetivo: substituir o pipeline config-only por um projeto Rust com RMK como library, pronto para hospedar tasks Embassy paralelas (display, touch, WiFi).
+**Plano detalhado**: [`docs/F2-plan.md`](docs/F2-plan.md) contém o conteúdo completo de cada arquivo, ordem de execução, riscos e definition of done.
 
-- [ ] Criar `dongle/Cargo.toml` com `rmk = "0.7"` (features: `esp32s3_ble`, `split`, `storage`, `vial`) + esp-hal + esp-radio + embassy + bt-hci + esp-backtrace + esp-println
-- [ ] Criar `dongle/src/main.rs` com macro `#[rmk_keyboard]` apontando para `dongle/keyboard.toml`
-- [ ] Criar `dongle/.cargo/config.toml` (target `xtensa-esp32s3-none-elf`, runner `espflash`, `build-std = ["alloc", "core"]`)
-- [ ] Criar `dongle/rust-toolchain.toml` (channel `esp`)
-- [ ] Criar `dongle/partitions.csv` reservando ~12 MB para dados (`spiffs` ou `littlefs` para GIFs)
-- [ ] Refatorar `.github/workflows/build.yml`:
-  - [ ] Job `build-dongle` custom: `espup install` → `cargo build --release` → `espflash save-image` → upload artifact
-  - [ ] Jobs `build-left`/`build-right` continuam com `user_build.yml@main` (quando wiring existir)
-- [ ] Re-validar: dongle continua enumerando como HID após conversão
+Resumo:
+
+- [ ] Gerar `dongle/Cargo.toml`, `dongle/src/main.rs`, `dongle/.cargo/config.toml`, `dongle/rust-toolchain.toml`, `dongle/partitions.csv`, `dongle/build.rs`
+- [ ] Reescrever `.github/workflows/build.yml` com job `build-dongle` custom (espup + cargo + espflash save-image)
+- [ ] Peripherals continuam com `if: false` até P-pendentes de wiring resolverem
+- [ ] Validar que o `dongle.bin` novo enumera igual ao F1 (sem regressão)
 
 ---
 
