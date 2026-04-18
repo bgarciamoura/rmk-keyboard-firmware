@@ -140,22 +140,16 @@ col_pins = ["GPIO17", "GPIO18", "GPIO19", "GPIO20", "GPIO21", "GPIO33"]
 # ESP32-S3 — resulta em E0433 (failed to resolve: embassy_time). Os MT()/LT()
 # do keymap ficam com defaults do RMK. Readicionar em F2 (Cargo.toml próprio).
 
-# Macro 0: Ctrl+Shift+C (copy em terminais)
-[[behavior.macro.macros]]
-operations = [
-  { operation = "down", keycode = "LCtrl" },
-  { operation = "down", keycode = "LShift" },
-  { operation = "tap",  keycode = "C" },
-  { operation = "up",   keycode = "LShift" },
-  { operation = "up",   keycode = "LCtrl" },
-]
-
-# Macro 1: Ctrl+Shift+V (paste em terminais)
-[[behavior.macro.macros]]
-operations = [
-  { operation = "down", keycode = "LCtrl" },
-  { operation = "down", keycode = "LShift" },
-  { operation = "tap",  keycode = "V" },
-  { operation = "up",   keycode = "LShift" },
-  { operation = "up",   keycode = "LCtrl" },
-]
+# F2 WORKAROUND: bloco [[behavior.macro.macros]] removido temporariamente.
+# Em rmk main atual a macro rmk_keyboard falha expandindo `keycode = "LCtrl"`
+# dentro de operations (erros E0599 para LCtrl/LShift/C/V mesmo sendo variantes
+# válidas de KeyCode). No keymap direto esses nomes funcionam normalmente.
+# Provável mudança de schema em behavior.macro em main vs. o que estava em F1
+# via user_build.yml. Re-adicionar após descobrir formato correto.
+#
+# Originais:
+#   M0: Ctrl+Shift+C (copy)
+#   M1: Ctrl+Shift+V (paste)
+# Enquanto removidos, as referências "Macro0"/"Macro1" no keymap apontam para
+# slots vazios — não-op ao apertar. Sem impacto em F2 build, mas funcionalidade
+# perdida até ser readicionado.
