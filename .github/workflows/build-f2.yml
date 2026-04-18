@@ -1,0 +1,56 @@
+name: F2 — Build dongle (Rust/cargo)
+#
+# Workflow paralelo ao build.yml (F1 config-only). Ambos rodam em cada push
+# enquanto F2 amadurece. Quando estável, o build.yml é substituído por este
+# conteúdo e o build-f2.yml é removido.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "dongle/**"
+      - ".github/workflows/build-f2.yml"
+
+jobs:
+  build-dongle-f2:
+    name: build-dongle (Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dongle
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dongle -> target
+          shared-key: esp32s3-f2
+          cache-on-failure: true
+
+      - name: Install ESP Xtensa toolchain
+        uses: esp-rs/xtensa-toolchain@v1.5
+        with:
+          ldproxy: true
+          default: true
+          buildtargets: esp32s3
+
+      - name: Install espflash
+        run: cargo install espflash --locked
+
+      - name: Build firmware (release)
+        run: cargo build --release
+
+      - name: Produce flashable image
+        run: |
+          espflash save-image \
+            --chip esp32s3 \
+            --merge \
+            target/xtensa-esp32s3-none-elf/release/central \
+            dongle.bin
+
+      - name: Upload dongle.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: dongle-f2-bin
+          path: dongle/dongle.bin
