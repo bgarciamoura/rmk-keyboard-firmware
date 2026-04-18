@@ -12,7 +12,13 @@
 #![no_std]
 #![no_main]
 
-use rmk::rmk_keyboard;
+// `use esp_backtrace as _;` registra o #[panic_handler] via link — sem a
+// referência, o crate não é incluído e o compilador reclama de falta de handler.
+use esp_backtrace as _;
+
+// rmk reexporta o crate de macros como `rmk::macros`; a macro em si se chama
+// `rmk_keyboard`. Era `rmk::rmk_keyboard` em versões antigas.
+use rmk::macros::rmk_keyboard;
 
 #[rmk_keyboard]
 mod keyboard {}
