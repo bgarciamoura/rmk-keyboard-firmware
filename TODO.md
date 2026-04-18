@@ -4,19 +4,26 @@ Lista ordenada por **fase**. F1 está em execução; F2+ são projetos separados
 
 ---
 
-## F1 — Build do dongle verde no CI (em andamento)
+## F1 — Build do dongle verde no CI ✅
 
-Objetivo: `git push` produzir um `dongle.bin` flasheável sem erros, via upstream `user_build.yml`.
+Objetivo alcançado em run `24594377654` (commit `fe383a8`): `firmware_bin` artifact produzido, 3m59s.
 
 - [x] `.github/workflows/build.yml` buildando só o dongle (left/right comentados)
-- [x] `split.central` com `rows=1, cols=1` defensivo (fallback se RMK rejeitar 0x0)
+- [x] `split.central` com `rows=1, cols=1` defensivo
 - [x] 6 layers traduzidos do `.vil` no `dongle/keyboard.toml`
-- [x] Behavior: home-row mods, layer-taps, macros M0/M1, perfil HRM
-- [ ] **Commit + push + ver o job passando no GitHub Actions**
-- [ ] Baixar o `dongle.bin` do artifact e fazer flash no ESP32-S3 com `espflash flash` ou `esptool.py`
-- [ ] Confirmar enumeração USB: o host deve reconhecer como HID Keyboard + HID Mouse
-- [ ] **Se falhar no build**: ler o log, consertar (provável candidato: nome de keycode rejeitado, ou split.central 1x1 também não aceito → usar `[split.central.matrix]` dummy com pinos não-usados)
-- [ ] Validar nomes de keycode RMK: `MouseBtn1..5`, `MouseWheelUp/Down`, `VolumeUp/Down`, `MediaPlayPause`, `MediaNextTrack`, `MediaPrevTrack`, `BrightnessUp/Down`, `Mute`, `KpPlus`, `Macro0/1`. Consultar https://docs.rs/rmk/latest/rmk/keycode/enum.KeyCode.html
+- [x] Macros M0/M1 migradas (copy/paste via `[[behavior.macro.macros]]`)
+- [x] Commit + push + job verde no GitHub Actions
+- [x] Workarounds CI documentados: `[split.central.matrix]` dummy, `[split.peripheral.matrix]` dummy para cada peripheral, keycodes `AudioVolUp/Down`/`AudioMute`, `[keyboard] name` = "central" para match de path, remoção temporária de `[behavior.morse]` (embassy_time missing no template upstream)
+- [ ] **Próximo passo seu**: baixar o `firmware_bin` e flashar no ESP32-S3:
+  - `gh run download 24594377654 -n firmware_bin` (ou baixar via web UI)
+  - `espflash flash rmk.bin` ou `esptool.py --chip esp32s3 write_flash 0x0 rmk.bin`
+  - Confirmar enumeração USB: host deve ver "Charybdis 3x6 Wireless" (via `product_name`) como HID Keyboard + HID Mouse
+
+## Pendências de keymap que ficaram para F2
+
+- [ ] Readicionar `[behavior.morse]` com `hold_timeout`/`gap_timeout` e perfil HRM (home-row mods agora estão com defaults do RMK)
+- [ ] Re-anexar `, HRM` aos `MT()` calls
+- [ ] Revalidar nomes de keycode ainda não testados: `MouseBtn1..5`, `MouseWheelUp/Down`, `MediaPlayPause`, `MediaNextTrack`, `MediaPrevTrack`, `BrightnessUp/Down`, `KpPlus`, `Macro0/1`, `PrintScreen` (build passou, mas não temos confirmação visual ainda)
 
 ---
 
