@@ -11,9 +11,10 @@ test = false
 bench = false
 
 [dependencies]
-# rmk from crates.io (decisão de F2-plan.md); reavaliar se falhar em ESP32-S3
-# split central, caindo para `git = "https://github.com/haobogu/rmk", rev = "..."`.
-rmk = { version = "0.7", default-features = false, features = [
+# rmk do git main porque crates.io 0.7.x não expõe a feature `vial` (e outras
+# features que queremos já estão só em main). Quando sair versão > 0.7.8 com
+# vial feature disponível, re-pinar em crates.io.
+rmk = { git = "https://github.com/HaoboGu/rmk", branch = "main", default-features = false, features = [
     "esp32s3_ble",
     "split",
     "log",
