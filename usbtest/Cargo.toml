@@ -28,7 +28,11 @@ embassy-time     = "0.4"
 embassy-usb      = { version = "0.5", default-features = false }
 usbd-hid         = "0.8"
 
-esp-hal          = { version = "1.0", features = ["esp32s3", "unstable"] }
+# Pin exato em 1.0.0-rc.1 porque o esp-hal-embassy 0.9.0 (publicado antes do
+# release final do esp-hal) exige a feature interna __esp_hal_embassy, que foi
+# removida em 1.0.0 final. Até esp-hal-embassy 0.10 ser publicado, esta é a
+# combinação coerente.
+esp-hal          = { version = "=1.0.0-rc.1", features = ["esp32s3", "unstable"] }
 esp-hal-embassy  = { version = "0.9", features = ["esp32s3"] }
 esp-backtrace    = { version = "0.18", features = ["esp32s3", "panic-handler", "println"] }
 esp-println      = { version = "0.16", features = ["esp32s3", "log-04"] }
