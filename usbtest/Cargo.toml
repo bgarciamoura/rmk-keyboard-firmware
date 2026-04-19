@@ -29,7 +29,7 @@ embassy-usb      = { version = "0.5", default-features = false }
 usbd-hid         = "0.8"
 
 esp-hal          = { version = "1.0", features = ["esp32s3", "unstable"] }
-esp-hal-embassy  = { version = "0.10", features = ["esp32s3"] }
+esp-hal-embassy  = { version = "0.9", features = ["esp32s3"] }
 esp-backtrace    = { version = "0.18", features = ["esp32s3", "panic-handler", "println"] }
 esp-println      = { version = "0.16", features = ["esp32s3", "log-04"] }
 esp-alloc        = { version = "0.9" }
