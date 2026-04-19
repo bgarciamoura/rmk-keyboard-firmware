@@ -4,6 +4,9 @@
 *.hex
 *.elf
 
+# Ferramentas externas baixadas localmente (não versionar binários)
+tools/*.exe
+
 # Cargo / Rust (F2+)
 target/
 **/target/

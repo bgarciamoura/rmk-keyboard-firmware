@@ -1,0 +1,55 @@
+name: usbtest — USB HID minimal diagnostic
+
+# Workflow isolado para o crate usbtest/ (diagnóstico USB HID sem RMK/BLE).
+# Roda apenas quando o próprio crate muda, para não bloquear os outros builds.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "usbtest/**"
+      - ".github/workflows/build-usbtest.yml"
+
+jobs:
+  build-usbtest:
+    name: build-usbtest (Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: usbtest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: usbtest -> target
+          shared-key: esp32s3-usbtest
+          cache-on-failure: true
+
+      - name: Install ESP Xtensa toolchain
+        uses: esp-rs/xtensa-toolchain@v1.5
+        with:
+          ldproxy: true
+          default: true
+          buildtargets: esp32s3
+
+      - name: Install espflash
+        run: cargo install espflash --locked
+
+      - name: Build firmware (release)
+        run: cargo build --release
+
+      - name: Produce flashable merged image
+        run: |
+          espflash save-image \
+            --chip esp32s3 \
+            --merge \
+            target/xtensa-esp32s3-none-elf/release/usbtest \
+            usbtest.bin
+
+      - name: Upload usbtest.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: usbtest-bin
+          path: usbtest/usbtest.bin

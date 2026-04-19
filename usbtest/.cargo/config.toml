@@ -1,0 +1,16 @@
+[target.'cfg(all(any(target_arch = "riscv32", target_arch = "xtensa"), target_os = "none"))']
+runner = "espflash flash --monitor"
+
+[build]
+target = "xtensa-esp32s3-none-elf"
+
+rustflags = [
+  "-C", "force-frame-pointers",
+]
+
+[env]
+ESP_LOG = "debug"
+
+# Xtensa only: needed until LLVM upstream tem suporte Rust Xtensa completo.
+[unstable]
+build-std = ["alloc", "core"]

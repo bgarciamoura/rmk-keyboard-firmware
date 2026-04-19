@@ -1,0 +1,59 @@
+[package]
+name = "usbtest"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+# Crate de diagnóstico temporário: USB HID keyboard mínimo sobre esp-hal + embassy,
+# SEM rmk/BLE/split/storage. Se este binário enumera como VID 4C4B no host, o
+# problema do F2 está dentro do stack rmk (BLE init, storage, split); se não
+# enumera nem este, o problema é mais fundamental (toolchain, clocks, cabo).
+#
+# O USB OTG (GPIO19/20) e o USB-Serial/JTAG nativo do ESP32-S3 compartilham o
+# MESMO par físico de pinos — só um pode estar ativo. Qualquer log emitido após
+# Driver::new() não chega ao host via USB-JTAG (JTAG foi derrubado). Por isso os
+# logs via esp-println estão densamente antes do Driver::new — para capturarmos
+# o máximo possível antes do ponto-cego.
+
+[[bin]]
+name = "usbtest"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+embassy-executor = { version = "0.10", features = ["task-arena-size-32768"] }
+embassy-futures  = "0.1"
+embassy-time     = "0.4"
+embassy-usb      = { version = "0.5", default-features = false }
+usbd-hid         = "0.8"
+
+esp-hal          = { version = "1.0", features = ["esp32s3", "unstable"] }
+esp-hal-embassy  = { version = "0.10", features = ["esp32s3"] }
+esp-backtrace    = { version = "0.18", features = ["esp32s3", "panic-handler", "println"] }
+esp-println      = { version = "0.16", features = ["esp32s3", "log-04"] }
+esp-alloc        = { version = "0.9" }
+esp-bootloader-esp-idf = { version = "0.4", features = ["esp32s3", "log-04"] }
+
+log = "0.4"
+
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "thin"
+opt-level = 3
+overflow-checks = false
+
+# Pin idêntico ao dongle/Cargo.toml para manter a família esp-rs coerente.
+[patch.crates-io]
+esp-backtrace          = { git = "https://github.com/esp-rs/esp-hal", rev = "20ed2bc36627581e02b227d61db41b11c11891b7" }
+esp-hal                = { git = "https://github.com/esp-rs/esp-hal", rev = "20ed2bc36627581e02b227d61db41b11c11891b7" }
+esp-hal-embassy        = { git = "https://github.com/esp-rs/esp-hal", rev = "20ed2bc36627581e02b227d61db41b11c11891b7" }
+esp-alloc              = { git = "https://github.com/esp-rs/esp-hal", rev = "20ed2bc36627581e02b227d61db41b11c11891b7" }
+esp-println            = { git = "https://github.com/esp-rs/esp-hal", rev = "20ed2bc36627581e02b227d61db41b11c11891b7" }
+esp-bootloader-esp-idf = { git = "https://github.com/esp-rs/esp-hal", rev = "20ed2bc36627581e02b227d61db41b11c11891b7" }
