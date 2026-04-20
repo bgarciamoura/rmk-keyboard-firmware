@@ -40,6 +40,11 @@ const REPORT_RELEASE: [u8; 8] = [0; 8];
 // Endpoint memory para o driver USB — 1 KiB é suficiente para HID simples.
 static mut EP_MEMORY: [u8; 1024] = [0; 1024];
 
+// ESP-IDF App Descriptor: o bootloader 2nd-stage e o espflash esperam encontrar
+// este blob logo após o header do app. Sem ele o espflash se recusa a gerar a
+// imagem merged.
+esp_bootloader_esp_idf::esp_app_desc!();
+
 #[esp_rtos::main]
 async fn main(_spawner: Spawner) {
     // 1) Init esp-hal core
