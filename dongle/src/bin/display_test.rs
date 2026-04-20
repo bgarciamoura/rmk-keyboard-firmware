@@ -5,19 +5,17 @@
 //! SPI + GPIO controls + sequência de init do JD9853 funcionam — base pra
 //! `embedded-graphics` e texto depois.
 //!
-//! Pinout (Waveshare ESP32-S3-Touch-LCD-1.47) — confirmado pelo demo
-//! oficial em ESP32-S3-Touch-LCD-1.47-Demo.zip (LovyanGFX #746):
-//!   GPIO38 = LCD_CLK   (SPI clock)
-//!   GPIO39 = LCD_DIN   (SPI MOSI)
+//! Pinout — confirmado pelo bsp_display.h do mimiclaw (board conhecida-
+//! funcional com este LCD). As macros EXAMPLE_PIN_LCD_* do componente
+//! esp_bsp são a fonte da verdade:
+//!   GPIO38 = LCD_SCLK  (SPI clock)
+//!   GPIO39 = LCD_MOSI  (SPI MOSI)
 //!   GPIO21 = LCD_CS    (chip select, ativo baixo)
 //!   GPIO45 = LCD_DC    (data=high / command=low)
-//!   GPIO47 = LCD_RST   (reset, ativo baixo) — NÃO é GPIO40.
-//!                      A imagem de pinout genérica lista GPIO40 como
-//!                      LCD_RST, mas na placa Touch real GPIO40 é outra
-//!                      coisa e o reset do LCD vai em GPIO47. GPIO47
-//!                      também é TP_RST no painel táctil (touch e LCD
-//!                      compartilham o reset via um circuito externo).
-//!   GPIO46 = LCD_BL    (backlight, ativo alto)
+//!   GPIO40 = LCD_RST   (reset, ativo baixo)
+//!   GPIO46 = LCD_BL    (backlight, LEDC PWM 5 kHz 10-bit no mimiclaw —
+//!                      aqui simplificado pra GPIO HIGH direto)
+//! SPI a 80 MHz é o que o mimiclaw usa (EXAMPLE_LCD_PIXEL_CLOCK_HZ).
 //!
 //! Janela visível: x=34..205 (172 cols), y=0..319. Offset x=34 é limitação
 //! do controller — a tela física é 240 mas só 172 pixels são roteados.
@@ -139,13 +137,14 @@ async fn main(_spawner: Spawner) {
     let out_cfg = OutputConfig::default();
     let mut cs = Output::new(peripherals.GPIO21, Level::High, out_cfg);
     let mut dc = Output::new(peripherals.GPIO45, Level::Low, out_cfg);
-    let mut rst = Output::new(peripherals.GPIO47, Level::High, out_cfg);
+    let mut rst = Output::new(peripherals.GPIO40, Level::High, out_cfg);
     let mut bl = Output::new(peripherals.GPIO46, Level::Low, out_cfg);
 
-    // SPI2 a 40 MHz, Mode 0. Velocidade confirmada pelo demo oficial da
-    // Waveshare para este painel.
+    // SPI2 a 80 MHz, Mode 0 — mesmo valor que o bsp_display.c do mimiclaw
+    // usa (EXAMPLE_LCD_PIXEL_CLOCK_HZ = 80 * 1000 * 1000). SPI2 do ESP32-S3
+    // permite qualquer GPIO via matrix.
     let spi_config = SpiConfig::default()
-        .with_frequency(Rate::from_mhz(40))
+        .with_frequency(Rate::from_mhz(80))
         .with_mode(Mode::_0);
     let mut spi = Spi::new(peripherals.SPI2, spi_config)
         .expect("SPI init falhou")
@@ -198,10 +197,13 @@ async fn main(_spawner: Spawner) {
     write_cmd(&mut spi, &mut cs, &mut dc, 0x2C); // RAMWR
 
     // Fill com vermelho. 172 × 320 = 55040 pixels × 2 bytes = 110080 bytes.
-    // Buffer de 512 bytes repetido é eficiente: 256 pixels por chunk,
-    // 215 chunks totais. SPI a 40 MHz → ~22ms totais teóricos.
-    let mut chunk = [0u8; 512];
-    for i in 0..256 {
+    // Chunk de 64 bytes é o tamanho nativo do FIFO do SPI2 do ESP32-S3
+    // quando NÃO usa DMA. Chunks maiores podem ser truncados silenciosamente
+    // pelo driver Rust (esp-hal `SpiBus::write` sem DMA), resultando em RAM
+    // do display parcialmente não escrita = tela preta. O mimiclaw usa DMA
+    // (SPI_DMA_CH_AUTO) por isso pode mandar buffers grandes.
+    let mut chunk = [0u8; 64];
+    for i in 0..32 {
         chunk[i * 2] = RED_HI;
         chunk[i * 2 + 1] = RED_LO;
     }
@@ -209,9 +211,9 @@ async fn main(_spawner: Spawner) {
     dc.set_high();
     cs.set_low();
     let total_pixels = LCD_W as u32 * LCD_H as u32; // 55040
-    let pixels_per_chunk = 256u32;
-    let full_chunks = total_pixels / pixels_per_chunk; // 215
-    let remainder_pixels = total_pixels % pixels_per_chunk; // 0 aqui, 172*320 é múltiplo
+    let pixels_per_chunk = 32u32;
+    let full_chunks = total_pixels / pixels_per_chunk; // 1720
+    let remainder_pixels = total_pixels % pixels_per_chunk; // 0 (55040 é múltiplo)
     for _ in 0..full_chunks {
         let _ = spi.write(&chunk);
     }
@@ -219,6 +221,8 @@ async fn main(_spawner: Spawner) {
         let bytes = (remainder_pixels * 2) as usize;
         let _ = spi.write(&chunk[..bytes]);
     }
+    // flush() garante que o último byte saiu do FIFO antes de CS ir high.
+    let _ = spi.flush();
     cs.set_high();
     info!("=== fill VERMELHO concluído — tela deve estar vermelha ===");
 
