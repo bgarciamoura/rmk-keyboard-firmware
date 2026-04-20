@@ -33,7 +33,7 @@ use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 // Endpoint memory para o driver USB — 1 KiB é suficiente para HID simples.
 static mut EP_MEMORY: [u8; 1024] = [0; 1024];
 
-#[esp_hal_embassy::main]
+#[esp_rtos::main]
 async fn main(_spawner: Spawner) {
     // 1) Init esp-hal core
     let peripherals = esp_hal::init(esp_hal::Config::default());
@@ -43,10 +43,12 @@ async fn main(_spawner: Spawner) {
     info!("=== usbtest boot ===");
     info!("step 1/6: esp-hal + heap + logger prontos");
 
-    // 2) Timer para embassy
+    // 2) esp-rtos provê o time driver do embassy via feature "embassy" —
+    //    start() consome o TimerGroup::timer0 e liga tudo. Não é preciso
+    //    chamar esp_hal_embassy::init separadamente.
     let timg0 = TimerGroup::new(peripherals.TIMG0);
-    esp_hal_embassy::init(timg0.timer0);
-    info!("step 2/6: embassy timer pronto");
+    esp_rtos::start(timg0.timer0);
+    info!("step 2/6: esp-rtos + embassy timer pronto");
 
     // 3) Pequeno delay para o host reconhecer a detecção pendente no USB-JTAG
     //    antes de derrubarmos ele trocando pelo OTG.

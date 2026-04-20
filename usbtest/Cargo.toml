@@ -4,16 +4,16 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
-# Crate de diagnóstico temporário: USB HID keyboard mínimo sobre esp-hal + embassy,
-# SEM rmk/BLE/split/storage. Se este binário enumera como VID 4C4B no host, o
-# problema do F2 está dentro do stack rmk (BLE init, storage, split); se não
-# enumera nem este, o problema é mais fundamental (toolchain, clocks, cabo).
+# Crate de diagnóstico temporário: USB HID keyboard mínimo sobre esp-hal +
+# embassy, SEM rmk/BLE/split/storage. Se este binário enumera como VID 4C4B
+# no host, o problema do F2 está dentro do stack rmk (BLE init, storage,
+# split); se não enumera nem este, o problema é mais fundamental (esp-hal
+# USB OTG config, cabo, ou Windows driver).
 #
-# O USB OTG (GPIO19/20) e o USB-Serial/JTAG nativo do ESP32-S3 compartilham o
-# MESMO par físico de pinos — só um pode estar ativo. Qualquer log emitido após
-# Driver::new() não chega ao host via USB-JTAG (JTAG foi derrubado). Por isso os
-# logs via esp-println estão densamente antes do Driver::new — para capturarmos
-# o máximo possível antes do ponto-cego.
+# O USB OTG (GPIO19/20) e o USB-Serial/JTAG nativo do ESP32-S3 compartilham
+# o MESMO par físico de pinos — só um pode estar ativo. Qualquer log emitido
+# após o OTG ser ligado não chega ao host via USB-JTAG (o JTAG foi derrubado).
+# Por isso os logs via esp-println ficam densos ANTES do driver USB subir.
 
 [[bin]]
 name = "usbtest"
@@ -22,24 +22,23 @@ test = false
 bench = false
 
 [dependencies]
-embassy-executor = { version = "0.10" }
-embassy-futures  = "0.1"
-embassy-time     = "0.4"
-embassy-usb      = { version = "0.5", default-features = false }
-usbd-hid         = "0.8"
-
-# Pin exato em 1.0.0-rc.1 porque o esp-hal-embassy 0.9.0 (publicado antes do
-# release final do esp-hal) exige a feature interna __esp_hal_embassy, que foi
-# removida em 1.0.0 final. Até esp-hal-embassy 0.10 ser publicado, esta é a
-# combinação coerente.
-esp-hal          = { version = "=1.0.0-rc.1", features = ["esp32s3", "unstable"] }
-esp-hal-embassy  = { version = "0.9", features = ["esp32s3"] }
-esp-backtrace    = { version = "0.18", features = ["esp32s3", "panic-handler", "println"] }
-esp-println      = { version = "0.16", features = ["esp32s3", "log-04"] }
-esp-alloc        = { version = "0.9" }
+# esp-rtos substitui o antigo esp-hal-embassy (abandonado quando esp-hal 1.0
+# final saiu: a feature interna __esp_hal_embassy foi removida mas esp-hal-embassy
+# 0.9.x ainda a requer). esp-rtos é a runtime embassy oficial da esp-rs hoje.
+esp-rtos               = { version = "0.2", features = ["embassy", "log-04"] }
+esp-hal                = { version = "=1.0.0", features = ["esp32s3", "log-04", "unstable"] }
+esp-backtrace          = { version = "0.18.1", features = ["esp32s3", "panic-handler", "println"] }
+esp-println            = { version = "0.16.1", features = ["esp32s3", "log-04"] }
+esp-alloc              = { version = "0.9" }
 esp-bootloader-esp-idf = { version = "0.4", features = ["esp32s3", "log-04"] }
 
-log = "0.4"
+# embassy-executor 0.9 (não 0.10) é o que esp-rtos 0.2 espera.
+embassy-executor = "0.9"
+embassy-futures  = "0.1"
+embassy-time     = "0.4"
+embassy-usb      = { version = "0.5.1", default-features = false }
+usbd-hid         = "0.9"
+log              = "0.4"
 
 [profile.dev]
 opt-level = "s"
@@ -52,9 +51,3 @@ incremental = false
 lto = "thin"
 opt-level = 3
 overflow-checks = false
-
-# Sem [patch.crates-io]: este crate não usa RMK. O pin do dongle/Cargo.toml
-# (rev 20ed2bc3) foi escolhido para alinhar com o que o rmk main espera, e
-# esse rev específico não tem a feature __esp_hal_embassy que o esp-hal-embassy
-# 0.9 publicado no crates.io exige. Resolver tudo do crates.io evita essa
-# discrepância — para usbtest, coerência semver é suficiente.
