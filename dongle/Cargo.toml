@@ -22,6 +22,16 @@ path = "src/bin/probe.rs"
 test = false
 bench = false
 
+# Central v2 — firmware de produção do dongle sem usar `#[rmk_keyboard]`.
+# Reordena o init: USB HID sobe imediatamente, contornando o travamento
+# de `rmk::ble::run_ble` no F1. Enumera como VID 4C4B:4643, emite 'R' a
+# cada 30s como prova de vida.
+[[bin]]
+name = "central_v2"
+path = "src/bin/central_v2.rs"
+test = false
+bench = false
+
 [dependencies]
 # rmk do git main porque crates.io 0.7.x não expõe a feature `vial` (e outras
 # features que queremos já estão só em main). Quando sair versão > 0.7.8 com

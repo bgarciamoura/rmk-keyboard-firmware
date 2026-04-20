@@ -1,0 +1,57 @@
+name: central_v2 — dongle firmware (USB-first, BLE pendente)
+
+# Firmware de produção do dongle que contorna o travamento do rmk::ble::run_ble
+# subindo USB HID direto. Quando o pareamento BLE com as metades nRF52840 for
+# implementado, este binário é a base do central.rs definitivo.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "dongle/src/bin/central_v2.rs"
+      - "dongle/Cargo.toml"
+      - ".github/workflows/build-central-v2.yml"
+
+jobs:
+  build-central-v2:
+    name: build-central-v2 (Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dongle
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dongle -> target
+          shared-key: esp32s3-central-v2
+          cache-on-failure: true
+
+      - name: Install ESP Xtensa toolchain
+        uses: esp-rs/xtensa-toolchain@v1.5
+        with:
+          ldproxy: true
+          default: true
+          buildtargets: esp32s3
+
+      - name: Install espflash
+        run: cargo install espflash --locked
+
+      - name: Build central_v2 (release)
+        run: cargo build --release --bin central_v2
+
+      - name: Produce flashable merged image
+        run: |
+          espflash save-image \
+            --chip esp32s3 \
+            --merge \
+            target/xtensa-esp32s3-none-elf/release/central_v2 \
+            central_v2.bin
+
+      - name: Upload central_v2.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: central-v2-bin
+          path: dongle/central_v2.bin
