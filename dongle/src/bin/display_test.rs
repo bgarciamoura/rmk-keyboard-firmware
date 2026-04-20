@@ -53,6 +53,10 @@ type InitCmd = (u8, &'static [u8], u16);
 
 const INIT_SEQ: &[InitCmd] = &[
     (0x11, &[], 120),                                                          // SLPOUT
+    // MADCTL não está no init_seq do mimiclaw, mas o driver C envia ele
+    // separadamente antes do init. Sem isso, orientação/RGB order fica
+    // indefinido após reset.
+    (0x36, &[0x00], 0),                                                        // MADCTL: RGB order, no mirroring
     (0xDF, &[0x98, 0x53], 0),                                                  // enable ext cmd set
     (0xDF, &[0x98, 0x53], 0),                                                  // (repetido no driver original)
     (0xB2, &[0x23], 0),
@@ -86,7 +90,12 @@ const INIT_SEQ: &[InitCmd] = &[
     (0xDE, &[0x02], 0),
     (0xE5, &[0x00, 0x02, 0x00], 0),
     (0xDE, &[0x00], 0),
-    (0x29, &[], 0),                                                            // DISPON
+    (0x29, &[], 20),                                                           // DISPON (+ 20ms stabilize)
+    // INVON frequentemente necessário em LCDs TFT modernos — a polaridade
+    // do substrato LCD deste painel exige inversão para cores corretas.
+    // Se a tela aparecer com cores "trocadas" (vermelho → ciano, etc.),
+    // trocar por 0x20 (INVOFF).
+    (0x21, &[], 0),                                                            // INVON
 ];
 
 /// Envia um comando: DC=low, CS=low, byte, CS=high.
@@ -127,9 +136,11 @@ async fn main(_spawner: Spawner) {
     let mut rst = Output::new(peripherals.GPIO40, Level::High, out_cfg);
     let mut bl = Output::new(peripherals.GPIO46, Level::Low, out_cfg);
 
-    // SPI2 a 40 MHz, Mode 0. SPI2 do ESP32-S3 permite qualquer GPIO via matrix.
+    // SPI2 a 20 MHz, Mode 0. SPI2 do ESP32-S3 permite qualquer GPIO via matrix.
+    // 20 MHz é conservador no primeiro bring-up; depois de validar fill,
+    // subir pra 40 MHz (JD9853 suporta até 50 MHz por datasheet).
     let spi_config = SpiConfig::default()
-        .with_frequency(Rate::from_mhz(40))
+        .with_frequency(Rate::from_mhz(20))
         .with_mode(Mode::_0);
     let mut spi = Spi::new(peripherals.SPI2, spi_config)
         .expect("SPI init falhou")
