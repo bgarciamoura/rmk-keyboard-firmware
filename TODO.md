@@ -62,7 +62,8 @@ Novo binário `dongle/src/bin/central_v2.rs` que **não usa `#[rmk_keyboard]`**:
 
 ### Pendências F2 residuais
 
-- [ ] Re-investigar travamento do `rmk::ble::run_ble` (reportar upstream? fork local?)
+- [ ] **Re-habilitar `#[rmk_keyboard]` no `central.rs`** (remover workaround `central_v2`) agora que a causa-raiz do travamento foi isolada: faltava `[storage]` em `keyboard.toml`. Bloco `[storage] start_addr=0x3f0000 num_sectors=16` adicionado em 2026-04-20. Com isso, o fluxo normal da macro deve rodar até `run_rmk`.
+- [ ] Validar o fix: flashar o `central.rs` (via `#[rmk_keyboard]`, não o v2), confirmar que enumera como VID 4C4B:4643, sem reboot loop. Se ainda travar, criar `probe_v4.rs` que executa `Storage::new` + `read_peer_address(0)` + `read_peer_address(1)` isoladamente.
 - [ ] Deletar `build.yml` (F1 obsoleto) e renomear `build-central-v2.yml` → `build.yml` quando F1.1 estiver completo
 - [ ] Remover hacks do config-only em `keyboard.toml` (`[split.central.matrix]` dummy, `[split.peripheral.matrix]` dummy, `name = "central"`)
 - [ ] Readicionar `[behavior.morse]`

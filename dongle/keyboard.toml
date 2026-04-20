@@ -82,6 +82,17 @@ keymap = [
 [ble]
 enabled = true
 
+# Região de flash reservada pro RMK persistir: bonding keys BLE, peer_addresses
+# dos peripherals, keymap runtime e config de behavior. Sem este bloco o RMK
+# cai no default (start_addr=0, num_sectors=2 = 8 KiB), que é insuficiente pra
+# empacotar ~288 chaves (6 layers × 4×12) + 2 peer_addresses do split. O
+# sequential_storage entra em loop de compaction/erase, cada erase blocante
+# desabilita interrupts por ~15-40 ms, e o Task WDT dispara. Mesmos valores
+# do exemplo oficial examples/use_rust/esp32s3_ble (16 setores = 64 KiB).
+[storage]
+start_addr = 0x3f0000
+num_sectors = 16
+
 [split]
 connection = "ble"
 
