@@ -30,6 +30,13 @@ use esp_hal::timer::timg::TimerGroup;
 use log::info;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 
+// Layout padrão de boot-protocol HID keyboard input report (8 bytes):
+//   byte 0: modifier mask (bits: LCtrl, LShift, LAlt, LGui, RCtrl, RShift, RAlt, RGui)
+//   byte 1: reserved
+//   bytes 2..=7: keycodes (até 6 simultâneos). Keycode 0x04 = 'a'.
+const REPORT_PRESS_A: [u8; 8] = [0, 0, 0x04, 0, 0, 0, 0, 0];
+const REPORT_RELEASE: [u8; 8] = [0; 8];
+
 // Endpoint memory para o driver USB — 1 KiB é suficiente para HID simples.
 static mut EP_MEMORY: [u8; 1024] = [0; 1024];
 
@@ -100,17 +107,9 @@ async fn main(_spawner: Spawner) {
     let key_loop = async {
         loop {
             Timer::after(Duration::from_secs(3)).await;
-            // Report com keycode 0x04 = 'a'; modificador 0.
-            let press = KeyboardReport {
-                keycodes: [0x04, 0, 0, 0, 0, 0],
-                modifier: 0,
-                leds: 0,
-                reserved: 0,
-            };
-            let _ = writer.write_serialize(&press).await;
+            let _ = writer.write(&REPORT_PRESS_A).await;
             Timer::after(Duration::from_millis(20)).await;
-            let release = KeyboardReport::default();
-            let _ = writer.write_serialize(&release).await;
+            let _ = writer.write(&REPORT_RELEASE).await;
         }
     };
 
