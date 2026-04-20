@@ -102,27 +102,35 @@ const INIT_SEQ: &[InitCmd] = &[
     (0x21, &[], 0),                                                            // INVON
 ];
 
-/// Envia um comando: DC=low, CS=low, byte, flush, CS=high.
-/// O flush() é crítico: SpiBus::write() pode retornar antes do último bit
-/// sair do MOSI. Sem flush, cs.set_high() aborta a transação no meio.
-fn write_cmd<S: SpiBus>(spi: &mut S, cs: &mut Output, dc: &mut Output, cmd: u8) {
-    dc.set_low();
+/// Envia cmd+data numa ÚNICA transação com CS continuamente low.
+/// Esse é o comportamento do `esp_lcd_panel_io_spi` do ESP-IDF: CS só vai
+/// high quando cmd e data terminaram. Toggle de CS entre cmd e data quebra
+/// o protocolo do JD9853 — o chip descarta o comando "incompleto".
+fn write_cmd<S: SpiBus>(spi: &mut S, cs: &mut Output, dc: &mut Output, cmd: u8, data: &[u8]) {
     cs.set_low();
+
+    // Command phase (DC=low)
+    dc.set_low();
     let _ = spi.write(&[cmd]);
     let _ = spi.flush();
+
+    // Data phase (DC=high) — só se houver dados
+    if !data.is_empty() {
+        dc.set_high();
+        let _ = spi.write(data);
+        let _ = spi.flush();
+    }
+
     cs.set_high();
 }
 
-/// Envia um bloco de dados: DC=high, CS=low, bytes, flush, CS=high.
-fn write_data<S: SpiBus>(spi: &mut S, cs: &mut Output, dc: &mut Output, data: &[u8]) {
-    if data.is_empty() {
-        return;
-    }
+/// Envia apenas dados adicionais (CS deve já estar low, em transação ativa).
+/// Usado no fill: um write_cmd(0x2C, &[]) abre a transação RAMWR, depois
+/// vários write_data_only() enviam os pixels, e fechamos CS manualmente.
+fn write_data_only<S: SpiBus>(spi: &mut S, dc: &mut Output, data: &[u8]) {
     dc.set_high();
-    cs.set_low();
     let _ = spi.write(data);
     let _ = spi.flush();
-    cs.set_high();
 }
 
 #[esp_rtos::main]
@@ -163,11 +171,10 @@ async fn main(_spawner: Spawner) {
     Timer::after(Duration::from_millis(150)).await;
     info!("RST: OK");
 
-    // Init sequence.
+    // Init sequence (cmd+data na mesma transação — CS continuamente low).
     info!("init sequence ({} comandos)...", INIT_SEQ.len());
     for &(cmd, data, delay_ms) in INIT_SEQ {
-        write_cmd(&mut spi, &mut cs, &mut dc, cmd);
-        write_data(&mut spi, &mut cs, &mut dc, data);
+        write_cmd(&mut spi, &mut cs, &mut dc, cmd, data);
         if delay_ms > 0 {
             Timer::after(Duration::from_millis(delay_ms as u64)).await;
         }
@@ -181,23 +188,21 @@ async fn main(_spawner: Spawner) {
     // Diagnóstico antes do fill: comandos MIPI-padrão que não dependem de
     // RAMWR. Se qualquer um deles afetar a tela, sabemos que o init chegou
     // e o problema é só no fill (CASET/RASET/RAMWR via SPI bulk).
-    //
-    // 0x23 = ALL_PIXELS_ON — tela inteira deve ficar branca
-    // 0x22 = ALL_PIXELS_OFF — tela volta ao modo normal (mostra o RAM)
     info!("diagnóstico: ALLPON (tela deve ficar BRANCA por 3s)");
-    write_cmd(&mut spi, &mut cs, &mut dc, 0x23);
+    write_cmd(&mut spi, &mut cs, &mut dc, 0x23, &[]);
     Timer::after(Duration::from_secs(3)).await;
 
     info!("diagnóstico: ALLPOFF (tela volta ao RAM — deve ficar PRETA 3s)");
-    write_cmd(&mut spi, &mut cs, &mut dc, 0x22);
+    write_cmd(&mut spi, &mut cs, &mut dc, 0x22, &[]);
     Timer::after(Duration::from_secs(3)).await;
 
-    // Set window pra área visível inteira e começar memory write.
-    write_cmd(&mut spi, &mut cs, &mut dc, 0x2A);
-    write_data(
+    // Set window pra área visível inteira — cada comando com seus dados
+    // numa única transação (CS low durante cmd+data).
+    write_cmd(
         &mut spi,
         &mut cs,
         &mut dc,
+        0x2A,
         &[
             (LCD_X_OFFSET >> 8) as u8,
             LCD_X_OFFSET as u8,
@@ -205,42 +210,35 @@ async fn main(_spawner: Spawner) {
             (LCD_X_OFFSET + LCD_W - 1) as u8,
         ],
     );
-    write_cmd(&mut spi, &mut cs, &mut dc, 0x2B);
-    write_data(
+    write_cmd(
         &mut spi,
         &mut cs,
         &mut dc,
+        0x2B,
         &[0x00, 0x00, ((LCD_H - 1) >> 8) as u8, (LCD_H - 1) as u8],
     );
-    write_cmd(&mut spi, &mut cs, &mut dc, 0x2C); // RAMWR
 
-    // Fill com vermelho. 172 × 320 = 55040 pixels × 2 bytes = 110080 bytes.
-    // Chunk de 64 bytes é o tamanho nativo do FIFO do SPI2 do ESP32-S3
-    // quando NÃO usa DMA. Chunks maiores podem ser truncados silenciosamente
-    // pelo driver Rust (esp-hal `SpiBus::write` sem DMA), resultando em RAM
-    // do display parcialmente não escrita = tela preta. O mimiclaw usa DMA
-    // (SPI_DMA_CH_AUTO) por isso pode mandar buffers grandes.
+    // Fill com vermelho dentro de uma ÚNICA transação RAMWR: abre CS,
+    // envia cmd 0x2C (DC=low), depois vários chunks de pixels (DC=high),
+    // fecha CS no final. Exatamente como o ESP-IDF faz internamente.
     let mut chunk = [0u8; 64];
     for i in 0..32 {
         chunk[i * 2] = RED_HI;
         chunk[i * 2 + 1] = RED_LO;
     }
 
-    dc.set_high();
     cs.set_low();
+    // Command phase
+    dc.set_low();
+    let _ = spi.write(&[0x2C]);
+    let _ = spi.flush();
+    // Data phase
     let total_pixels = LCD_W as u32 * LCD_H as u32; // 55040
     let pixels_per_chunk = 32u32;
     let full_chunks = total_pixels / pixels_per_chunk; // 1720
-    let remainder_pixels = total_pixels % pixels_per_chunk; // 0 (55040 é múltiplo)
     for _ in 0..full_chunks {
-        let _ = spi.write(&chunk);
+        write_data_only(&mut spi, &mut dc, &chunk);
     }
-    if remainder_pixels > 0 {
-        let bytes = (remainder_pixels * 2) as usize;
-        let _ = spi.write(&chunk[..bytes]);
-    }
-    // flush() garante que o último byte saiu do FIFO antes de CS ir high.
-    let _ = spi.flush();
     cs.set_high();
     info!("=== fill VERMELHO concluído — tela deve estar vermelha ===");
 
