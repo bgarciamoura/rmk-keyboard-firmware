@@ -32,6 +32,14 @@ path = "src/bin/central_v2.rs"
 test = false
 bench = false
 
+# Display test — F3 bring-up. Port do driver C do mimiclaw para Rust
+# bare-metal. Init do JD9853 via SPI2 + fill vermelho da tela 172×320.
+[[bin]]
+name = "display_test"
+path = "src/bin/display_test.rs"
+test = false
+bench = false
+
 [dependencies]
 # rmk do git main porque crates.io 0.7.x não expõe a feature `vial` (e outras
 # features que queremos já estão só em main). Quando sair versão > 0.7.8 com
@@ -64,6 +72,7 @@ embassy-usb = { version = "0.5.1", default-features = false }
 log = { version = "0.4" }
 embedded-storage = { version = "0.3" }
 usbd-hid = { version = "0.9" }
+embedded-hal = { version = "1.0" }
 
 [build-dependencies]
 # Usado pelo build.rs para gerar config_generated.rs com VIAL_KEYBOARD_DEF/ID

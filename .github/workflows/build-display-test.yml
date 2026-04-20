@@ -1,0 +1,56 @@
+name: display_test — JD9853 LCD bring-up
+
+# Workflow para validar o port do driver JD9853 para Rust (F3).
+# Binário paralelo aos outros — não mexe no central.rs/central_v2.rs.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "dongle/src/bin/display_test.rs"
+      - "dongle/Cargo.toml"
+      - ".github/workflows/build-display-test.yml"
+
+jobs:
+  build-display-test:
+    name: build-display-test (JD9853 fill red)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dongle
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dongle -> target
+          shared-key: esp32s3-display-test
+          cache-on-failure: true
+
+      - name: Install ESP Xtensa toolchain
+        uses: esp-rs/xtensa-toolchain@v1.5
+        with:
+          ldproxy: true
+          default: true
+          buildtargets: esp32s3
+
+      - name: Install espflash
+        run: cargo install espflash --locked
+
+      - name: Build display_test (release)
+        run: cargo build --release --bin display_test
+
+      - name: Produce flashable merged image
+        run: |
+          espflash save-image \
+            --chip esp32s3 \
+            --merge \
+            target/xtensa-esp32s3-none-elf/release/display_test \
+            display_test.bin
+
+      - name: Upload display_test.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: display-test-bin
+          path: dongle/display_test.bin
