@@ -40,6 +40,14 @@ path = "src/bin/display_test.rs"
 test = false
 bench = false
 
+# Display hello — F3 próxima etapa. Mesmo driver JD9853 do display_test,
+# mas implementa DrawTarget do embedded-graphics e desenha "Hello RMK".
+[[bin]]
+name = "display_hello"
+path = "src/bin/display_hello.rs"
+test = false
+bench = false
+
 [dependencies]
 # rmk do git main porque crates.io 0.7.x não expõe a feature `vial` (e outras
 # features que queremos já estão só em main). Quando sair versão > 0.7.8 com
@@ -73,6 +81,7 @@ log = { version = "0.4" }
 embedded-storage = { version = "0.3" }
 usbd-hid = { version = "0.9" }
 embedded-hal = { version = "1.0" }
+embedded-graphics = { version = "0.8" }
 
 [build-dependencies]
 # Usado pelo build.rs para gerar config_generated.rs com VIAL_KEYBOARD_DEF/ID

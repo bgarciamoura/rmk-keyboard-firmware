@@ -74,11 +74,13 @@ Novo binário `dongle/src/bin/central_v2.rs` que **não usa `#[rmk_keyboard]`**:
 
 Objetivo: tela acende e imprime "Hello RMK". Reaproveitar sequências de init de `C:\Users\bgarciamoura\projects\mimiclaw\components\esp_lcd_jd9853\esp_lcd_jd9853.c` (460 LoC C) como referência de port.
 
-- [ ] Identificar pinos SPI do display na placa (SCK, MOSI, DC, CS, RST, BL) — consultar datasheet/schematic
-- [ ] Novo módulo `dongle/src/drivers/jd9853.rs` implementando driver em Rust bare-metal (embedded-hal async)
-- [ ] Task Embassy `display_task` que inicializa driver e faz um fill com cor fixa
-- [ ] Integrar `embedded-graphics` para desenhar texto
-- [ ] Validar: tela mostra "Hello RMK" na primeira boot
+- [x] Identificar pinos SPI do display na placa (GPIO38/39 + CS=21, DC=45, RST=40, BL=46) — confirmado via `projects/esp32s3/CLAUDE.md` + `mimiclaw/bsp_display.h`
+- [x] Port da sequência de init do JD9853 (34 comandos) de C → Rust em `dongle/src/bin/display_test.rs`
+- [x] Fill vermelho a 80 MHz funcionando em <20 ms após boot (validado 2026-04-20)
+- [x] Bug principal resolvido: CS deve ficar low durante cmd+data numa única transação (ver cerebrum)
+- [ ] **Próximo**: integrar `embedded-graphics` para desenhar "Hello RMK" (Opção 2 da sessão atual)
+- [ ] Refatorar display_test em módulo reutilizável (`dongle/src/drivers/jd9853.rs`) com `DrawTarget` pronto
+- [ ] Task Embassy `display_task` em produção (integrada ao central_v2)
 
 ---
 
