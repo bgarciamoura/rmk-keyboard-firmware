@@ -1,9 +1,13 @@
 //! Display test — JD9853 1.47" LCD via SPI (Waveshare ESP32-S3-Touch-LCD-1.47).
 //!
-//! Alvo mínimo: inicializar o controlador, ligar o backlight, e preencher a
-//! tela inteira de vermelho. Se aparecer um retângulo vermelho, prova que
-//! SPI + GPIO controls + sequência de init do JD9853 funcionam — base pra
-//! `embedded-graphics` e texto depois.
+//! Inicializa o controlador, liga o backlight, e preenche a tela inteira de
+//! vermelho. Validado funcional em 2026-04-20. Base para `embedded-graphics`
+//! e texto em iterações futuras.
+//!
+//! Bug principal encontrado durante o bring-up: JD9853 (e protocolo MIPI-DCS
+//! em geral) exige CS continuamente low durante cmd+data numa única
+//! transação. Toggle de CS entre cmd e data faz o chip descartar a sequência
+//! silenciosamente. Ver função `write_cmd` abaixo.
 //!
 //! Pinout — confirmado pelo bsp_display.h do mimiclaw (board conhecida-
 //! funcional com este LCD). As macros EXAMPLE_PIN_LCD_* do componente
@@ -152,11 +156,11 @@ async fn main(_spawner: Spawner) {
     let mut rst = Output::new(peripherals.GPIO40, Level::High, out_cfg);
     let mut bl = Output::new(peripherals.GPIO46, Level::Low, out_cfg);
 
-    // SPI2 a 1 MHz pra desbugar — ultra lento pra eliminar qualquer timing
-    // issue. Se funcionar a 1 MHz mas não a 80 MHz, sabemos que é clock.
-    // Depois de confirmar, voltar pra 80 MHz ou usar DMA.
+    // SPI2 a 80 MHz, Mode 0 — mesma frequência que o bsp_display.c do
+    // mimiclaw usa (EXAMPLE_LCD_PIXEL_CLOCK_HZ). JD9853 aceita até esse
+    // valor com conforto.
     let spi_config = SpiConfig::default()
-        .with_frequency(Rate::from_mhz(1))
+        .with_frequency(Rate::from_mhz(80))
         .with_mode(Mode::_0);
     let mut spi = Spi::new(peripherals.SPI2, spi_config)
         .expect("SPI init falhou")
@@ -184,17 +188,6 @@ async fn main(_spawner: Spawner) {
     // Backlight ON só depois do init (evita flash branco).
     bl.set_high();
     info!("BL: ON");
-
-    // Diagnóstico antes do fill: comandos MIPI-padrão que não dependem de
-    // RAMWR. Se qualquer um deles afetar a tela, sabemos que o init chegou
-    // e o problema é só no fill (CASET/RASET/RAMWR via SPI bulk).
-    info!("diagnóstico: ALLPON (tela deve ficar BRANCA por 3s)");
-    write_cmd(&mut spi, &mut cs, &mut dc, 0x23, &[]);
-    Timer::after(Duration::from_secs(3)).await;
-
-    info!("diagnóstico: ALLPOFF (tela volta ao RAM — deve ficar PRETA 3s)");
-    write_cmd(&mut spi, &mut cs, &mut dc, 0x22, &[]);
-    Timer::after(Duration::from_secs(3)).await;
 
     // Set window pra área visível inteira — cada comando com seus dados
     // numa única transação (CS low durante cmd+data).
