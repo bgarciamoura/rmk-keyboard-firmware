@@ -5,12 +5,18 @@
 //! SPI + GPIO controls + sequência de init do JD9853 funcionam — base pra
 //! `embedded-graphics` e texto depois.
 //!
-//! Pinout (Waveshare ESP32-S3-Touch-LCD-1.47):
+//! Pinout (Waveshare ESP32-S3-Touch-LCD-1.47) — confirmado pelo demo
+//! oficial em ESP32-S3-Touch-LCD-1.47-Demo.zip (LovyanGFX #746):
 //!   GPIO38 = LCD_CLK   (SPI clock)
 //!   GPIO39 = LCD_DIN   (SPI MOSI)
 //!   GPIO21 = LCD_CS    (chip select, ativo baixo)
 //!   GPIO45 = LCD_DC    (data=high / command=low)
-//!   GPIO40 = LCD_RST   (reset, ativo baixo)
+//!   GPIO47 = LCD_RST   (reset, ativo baixo) — NÃO é GPIO40.
+//!                      A imagem de pinout genérica lista GPIO40 como
+//!                      LCD_RST, mas na placa Touch real GPIO40 é outra
+//!                      coisa e o reset do LCD vai em GPIO47. GPIO47
+//!                      também é TP_RST no painel táctil (touch e LCD
+//!                      compartilham o reset via um circuito externo).
 //!   GPIO46 = LCD_BL    (backlight, ativo alto)
 //!
 //! Janela visível: x=34..205 (172 cols), y=0..319. Offset x=34 é limitação
@@ -133,14 +139,13 @@ async fn main(_spawner: Spawner) {
     let out_cfg = OutputConfig::default();
     let mut cs = Output::new(peripherals.GPIO21, Level::High, out_cfg);
     let mut dc = Output::new(peripherals.GPIO45, Level::Low, out_cfg);
-    let mut rst = Output::new(peripherals.GPIO40, Level::High, out_cfg);
+    let mut rst = Output::new(peripherals.GPIO47, Level::High, out_cfg);
     let mut bl = Output::new(peripherals.GPIO46, Level::Low, out_cfg);
 
-    // SPI2 a 20 MHz, Mode 0. SPI2 do ESP32-S3 permite qualquer GPIO via matrix.
-    // 20 MHz é conservador no primeiro bring-up; depois de validar fill,
-    // subir pra 40 MHz (JD9853 suporta até 50 MHz por datasheet).
+    // SPI2 a 40 MHz, Mode 0. Velocidade confirmada pelo demo oficial da
+    // Waveshare para este painel.
     let spi_config = SpiConfig::default()
-        .with_frequency(Rate::from_mhz(20))
+        .with_frequency(Rate::from_mhz(40))
         .with_mode(Mode::_0);
     let mut spi = Spi::new(peripherals.SPI2, spi_config)
         .expect("SPI init falhou")
