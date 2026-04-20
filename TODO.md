@@ -1,6 +1,6 @@
 # TODO — Charybdis 3x6 Wireless (RMK)
 
-Lista ordenada por **fase**. F1 e F2 concluídos; o dongle está funcional como teclado USB. Próximas fases focam nos peripherals (F1.1) e nas features extras do dongle (F3+).
+Lista ordenada por **fase**. F1, F2 e F2.5 concluídos; F2-final (`#[rmk_keyboard]` limpo) **validado em hardware em 2026-04-20** — dongle enumera stack HID completo, Vial reconhece os 6 layers, reboot estável. Próximas fases focam nos peripherals (F1.1, bloqueador crítico pro teclado digitar) e nas features extras do dongle (F3+).
 
 ---
 
@@ -50,23 +50,27 @@ Trilha de 3 probes incrementais (+ um binário minimal `usbtest/`) para localiza
 
 ---
 
-## F2.5 — Workaround produção (`central_v2`) ✅
+## F2.5 — Workaround produção (`central_v2`) ✅ (obsoleto após F2-final)
 
-Novo binário `dongle/src/bin/central_v2.rs` que **não usa `#[rmk_keyboard]`**: reordena o init manualmente, sobe USB HID antes do fluxo `run_ble`. Workflow dedicado em `.github/workflows/build-central-v2.yml`.
+Binário `dongle/src/bin/central_v2.rs` foi criado como workaround enquanto o travamento do `rmk::ble::run_ble` estava sendo investigado. **Deixou de ser necessário em 2026-04-20** quando o fix real foi descoberto (`[storage]` ausente no `keyboard.toml`). Mantido no repositório como referência de "USB HID minimal + BLE controller idle", útil pra diagnósticos futuros.
 
-- [x] Dongle enumera como VID 4C4B:4643 "Charybdis 3x6 Wireless" no host
-- [x] Heartbeat de prova de vida ('R' a cada 30s) durante validação → **removido após confirmação**
-- [x] BLE controller inicializado e idle — pronto pra receber peripherals
-- [x] FlashStorage inicializado — pronto pra persistir bonding keys
-- [ ] **Próximo passo**: quando os firmwares left/right estiverem prontos, adicionar task BLE ao `central_v2.rs` que recebe eventos HID dos peripherals via BLE e injeta no `writer` USB
+## F2-final — `#[rmk_keyboard]` validado em hardware ✅
 
-### Pendências F2 residuais
+Commit `1ee32be` (run `24689080197`, build 3m53s). Fix: adicionar `[storage] start_addr=0x3f0000 num_sectors=16` ao `dongle/keyboard.toml` — default do RMK (`num_sectors=2`) era insuficiente pra empacotar 288 chaves de keymap + 2 peer_addresses do split, disparando WDT.
 
-- [ ] **Re-habilitar `#[rmk_keyboard]` no `central.rs`** (remover workaround `central_v2`) agora que a causa-raiz do travamento foi isolada: faltava `[storage]` em `keyboard.toml`. Bloco `[storage] start_addr=0x3f0000 num_sectors=16` adicionado em 2026-04-20. Com isso, o fluxo normal da macro deve rodar até `run_rmk`.
-- [ ] Validar o fix: flashar o `central.rs` (via `#[rmk_keyboard]`, não o v2), confirmar que enumera como VID 4C4B:4643, sem reboot loop. Se ainda travar, criar `probe_v4.rs` que executa `Storage::new` + `read_peer_address(0)` + `read_peer_address(1)` isoladamente.
-- [ ] Deletar `build.yml` (F1 obsoleto) e renomear `build-central-v2.yml` → `build.yml` quando F1.1 estiver completo
-- [ ] Remover hacks do config-only em `keyboard.toml` (`[split.central.matrix]` dummy, `[split.peripheral.matrix]` dummy, `name = "central"`)
-- [ ] Readicionar `[behavior.morse]`
+- [x] Descobrir causa-raiz do travamento (via comparação com exemplo oficial esp32s3_ble)
+- [x] Adicionar `[storage]` ao `dongle/keyboard.toml`
+- [x] Build F2 verde em 3m53s
+- [x] Flash via `espflash write-bin --chip esp32s3 0x0 dongle.bin` OK
+- [x] Dongle enumera como "Charybdis 3x6 Wireless" (VID 4C4B:4643) com stack HID completo: Keyboard + Mouse + Consumer Control + Power/System + Vendor-defined
+- [x] **Vial reconhece o dispositivo e lê os 6 layers**
+- [x] Reboot (desconectar/reconectar USB ~3x) mantém estabilidade
+
+### Pendências F2-final residuais (baixa prioridade)
+
+- [ ] Deletar `build.yml` (F1 config-only obsoleto) e `build-central-v2.yml` quando F1.1 estiver completo; renomear `build-f2.yml` → `build.yml`
+- [ ] Remover hacks do config-only em `keyboard.toml` (`[split.central.matrix]` dummy com pinos GPIO1/GPIO2, `[split.peripheral.matrix]` dummy com GPIO3-12 e GPIO13-33, `name = "central"` exigido pelo template upstream)
+- [ ] Readicionar `[behavior.morse]` agora que estamos no Cargo próprio (F2) e `embassy_time` está disponível no escopo — era o motivo de ter sido removido no F1
 - [ ] Re-investigar sintaxe atual de `[[behavior.macro.macros]]` em rmk main e re-adicionar M0 (Ctrl+Shift+C) / M1 (Ctrl+Shift+V)
 
 ---
@@ -113,9 +117,9 @@ Objetivo: dashboard completo. Se dividir se ficar pesado.
 
 ---
 
-## F1.1 — Firmwares dos peripherals (próxima prioridade)
+## F1.1 — Firmwares dos peripherals (BLOQUEADOR CRÍTICO AGORA)
 
-Bloqueia o teclado sair do estado "enumera mas não digita teclas físicas".
+Com F2-final validado, esta fase é o único bloqueador real pra sair do estado "dongle enumera lindamente, mas nenhuma tecla digita" — não há fonte de eventos até os peripherals parearem.
 
 - [ ] **Mapear pinos da matriz esquerda** em `left/keyboard.toml` (4 rows × 6 cols)
 - [ ] **Mapear pinos da matriz direita** em `right/keyboard.toml`
