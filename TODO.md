@@ -1,6 +1,6 @@
 # TODO — Charybdis 3x6 Wireless (RMK)
 
-Lista ordenada por **fase**. F1 está em execução; F2+ são projetos separados.
+Lista ordenada por **fase**. F1 e F2 concluídos; o dongle está funcional como teclado USB. Próximas fases focam nos peripherals (F1.1) e nas features extras do dongle (F3+).
 
 ---
 
@@ -14,10 +14,7 @@ Objetivo alcançado em run `24594377654` (commit `fe383a8`): `firmware_bin` arti
 - [x] Macros M0/M1 migradas (copy/paste via `[[behavior.macro.macros]]`)
 - [x] Commit + push + job verde no GitHub Actions
 - [x] Workarounds CI documentados: `[split.central.matrix]` dummy, `[split.peripheral.matrix]` dummy para cada peripheral, keycodes `AudioVolUp/Down`/`AudioMute`, `[keyboard] name` = "central" para match de path, remoção temporária de `[behavior.morse]` (embassy_time missing no template upstream)
-- [ ] **Próximo passo seu**: baixar o `firmware_bin` e flashar no ESP32-S3:
-  - `gh run download 24594377654 -n firmware_bin` (ou baixar via web UI)
-  - `espflash flash rmk.bin` ou `esptool.py --chip esp32s3 write_flash 0x0 rmk.bin`
-  - Confirmar enumeração USB: host deve ver "Charybdis 3x6 Wireless" (via `product_name`) como HID Keyboard + HID Mouse
+- [x] ~~Baixar e flashar~~ → Feito em 2026-04-19. **Resultado: o bin do workflow upstream NÃO enumera como USB HID no host**. Bootloader + partition + app têm headers válidos; o `rmk::ble::run_ble` trava num `.await` de flash read antes de chegar a spawnar o USB. Ver investigação em F2 abaixo.
 
 ## Pendências de keymap que ficaram para F2
 
@@ -27,9 +24,9 @@ Objetivo alcançado em run `24594377654` (commit `fe383a8`): `firmware_bin` arti
 
 ---
 
-## F2 — Dongle vira projeto Rust (habilita display) ✅
+## F2 — Dongle vira projeto Rust ✅
 
-CI verde no commit `1634620` (run `24596349354`), workflow paralelo `build-f2.yml` produzindo o artifact `dongle-f2-bin`.
+CI verde no commit `1634620` (run `24596349354`), workflow paralelo `build-f2.yml` produzindo o artifact `dongle-f2-bin`. **A macro `#[rmk_keyboard]` compila e gera binário, mas ao flashar o firmware trava internamente no `rmk::ble::run_ble` — ver "F2 debug" abaixo para o workaround adotado.**
 
 - [x] `dongle/Cargo.toml` — rmk em git main (crates.io 0.7 não tem feature `vial`), deps esp-rs com `[patch.crates-io]` pin em commit `20ed2bc`
 - [x] `dongle/src/central.rs` — `#[rmk_keyboard]` via `rmk::macros::rmk_keyboard`, panic handler linkado com `use esp_backtrace as _;`
@@ -37,8 +34,38 @@ CI verde no commit `1634620` (run `24596349354`), workflow paralelo `build-f2.ym
 - [x] `dongle/rust-toolchain.toml` — channel `esp`
 - [x] `dongle/build.rs` — comprime `vial.json` em XZ, gera `VIAL_KEYBOARD_DEF/ID` em `$OUT_DIR/config_generated.rs`, seta `-Tlinkall.x` como linker arg
 - [x] `.github/workflows/build-f2.yml` — workflow paralelo, não toca em `build.yml`; F1 e F2 convivem
-- [ ] **Próximo passo seu**: baixar `dongle-f2-bin` do run `24596349354` e flashar pra confirmar zero regressão vs F1
-- [ ] Após confirmado: consolidar — deletar `build.yml` (F1), renomear `build-f2.yml` → `build.yml`, remover hacks do F1 em `keyboard.toml` (`[split.central.matrix]` dummy, `[split.peripheral.matrix]` dummy, `name = "central"`), readicionar `[behavior.morse]`
+
+---
+
+## F2 debug — isolamento do bug `rmk::ble::run_ble` ✅
+
+Trilha de 3 probes incrementais (+ um binário minimal `usbtest/`) para localizar onde o firmware F1/F2 trava. **Tudo em `dongle/src/bin/` e `usbtest/`.**
+
+- [x] `usbtest/` — crate isolado usando `embassy-usb` 0.5.1 + `usbd-hid` 0.9 + `esp-rtos` 0.2 (sem RMK). Flashado, enumerou como VID 4C4B:0001 e digitou 'a' a cada 3s → **USB HID stack OK**
+- [x] `dongle/src/bin/probe.rs` V1 — passos 1-9 do init RMK (esp-hal → esp-rtos → BleConnector::new). Heartbeat OK → **passos 1-9 OK**
+- [x] `dongle/src/bin/probe.rs` V2 — adicionou passos 10-15 (ExternalController + FlashStorage read/erase/write/read-back). Heartbeat OK → **esp-storage + bt-hci wrapper OK**
+- [x] `dongle/src/bin/probe.rs` V3 — adicionou passos 16-18 (Usb::new() + HID enumeration DEPOIS de BLE + storage). Enumerou como VID 4C4B:0002 e digitou 'c' a cada 3s → **USB + BLE + storage coexistem sem problema**
+
+**Conclusão do debug:** o travamento está 100% localizado dentro de `rmk::ble::run_ble` — especificamente nos passos pré-`join`: leitura de `StorageKey::ConnectionType` ou `profile_manager.load_bonded_devices(storage).await`. Isso trava o executor antes do USB task ser polled. O esp-hal/BLE controller/storage crus estão corretos.
+
+---
+
+## F2.5 — Workaround produção (`central_v2`) ✅
+
+Novo binário `dongle/src/bin/central_v2.rs` que **não usa `#[rmk_keyboard]`**: reordena o init manualmente, sobe USB HID antes do fluxo `run_ble`. Workflow dedicado em `.github/workflows/build-central-v2.yml`.
+
+- [x] Dongle enumera como VID 4C4B:4643 "Charybdis 3x6 Wireless" no host
+- [x] Heartbeat de prova de vida ('R' a cada 30s) durante validação → **removido após confirmação**
+- [x] BLE controller inicializado e idle — pronto pra receber peripherals
+- [x] FlashStorage inicializado — pronto pra persistir bonding keys
+- [ ] **Próximo passo**: quando os firmwares left/right estiverem prontos, adicionar task BLE ao `central_v2.rs` que recebe eventos HID dos peripherals via BLE e injeta no `writer` USB
+
+### Pendências F2 residuais
+
+- [ ] Re-investigar travamento do `rmk::ble::run_ble` (reportar upstream? fork local?)
+- [ ] Deletar `build.yml` (F1 obsoleto) e renomear `build-central-v2.yml` → `build.yml` quando F1.1 estiver completo
+- [ ] Remover hacks do config-only em `keyboard.toml` (`[split.central.matrix]` dummy, `[split.peripheral.matrix]` dummy, `name = "central"`)
+- [ ] Readicionar `[behavior.morse]`
 - [ ] Re-investigar sintaxe atual de `[[behavior.macro.macros]]` em rmk main e re-adicionar M0 (Ctrl+Shift+C) / M1 (Ctrl+Shift+V)
 
 ---
@@ -82,15 +109,18 @@ Objetivo: dashboard completo. Se dividir se ficar pesado.
 
 ---
 
-## P-pendentes — Hardware / wiring (paralelo a F2+)
+## F1.1 — Firmwares dos peripherals (próxima prioridade)
 
-Ainda bloqueia F2 final das metades. Pode ser feito em qualquer momento.
+Bloqueia o teclado sair do estado "enumera mas não digita teclas físicas".
 
 - [ ] **Mapear pinos da matriz esquerda** em `left/keyboard.toml` (4 rows × 6 cols)
 - [ ] **Mapear pinos da matriz direita** em `right/keyboard.toml`
 - [ ] **Mapear pinos SPI da trackball** PMW3360DM em `right/keyboard.toml` (`sck`, `mosi`, `miso`, `cs`, `cpi`)
 - [ ] Decidir diodo (`row2col = true` ou não) conforme PCB
 - [ ] Re-habilitar jobs `left`/`right` em `.github/workflows/build.yml`
+- [ ] Flashar via `probe-rs` nos nRF52840 (UF2 do artifact)
+- [ ] Validar pareamento BLE: peripherals conectam no dongle (BLE addrs `...00:02` e `...00:03`)
+- [ ] Adicionar task BLE ao `central_v2.rs` recebendo eventos HID dos peripherals
 
 ---
 

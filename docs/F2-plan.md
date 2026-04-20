@@ -263,3 +263,55 @@ Se F2 causar regressão, reverter é trivial: `git revert` do commit que introdu
 - Macro `#[rmk_keyboard]`: https://docs.rs/rmk-macro/latest/rmk_macro/
 - Enum `KeyCode`: https://docs.rs/rmk/latest/rmk/keycode/enum.KeyCode.html
 - esp-rs toolchain: https://docs.esp-rs.org/book/installation/index.html
+
+---
+
+## Post-mortem (2026-04-20) — o que realmente aconteceu
+
+O plano original supunha que o binário produzido pela macro `#[rmk_keyboard]` subiria como HID no host. **Não subiu.** O CI verde e o flash bem-sucedido mascararam um travamento em runtime dentro do próprio RMK. A jornada de debug + workaround adotado estão resumidos abaixo.
+
+### Sintoma
+
+Após flashar o `rmk.bin` (F1) ou o `dongle-f2-bin` (F2), o ESP32-S3 nunca enumera como HID keyboard no host. VID 4C4B configurado no `keyboard.toml` jamais aparece no Device Manager. O USB-Serial/JTAG nativo (VID 303A:1001) some assim que o app toma posse do USB OTG, mas nada o substitui — o PHY fica num limbo.
+
+### Diagnóstico
+
+Três probes incrementais (`dongle/src/bin/probe.rs` V1 → V2 → V3) e um crate standalone (`usbtest/`) isolaram o travamento:
+
+| Probe | O que valida | Resultado |
+|--|--|--|
+| `usbtest/` | `esp-hal::otg_fs` + `embassy-usb` 0.5.1 + `usbd-hid` 0.9 sem RMK | ✅ VID 4C4B enumera, digita 'a' a cada 3s |
+| `probe.rs` V1 | esp-hal init → `esp-rtos::start` → `BleConnector::new` (suspect #1 do agent) | ✅ Heartbeat 33s estável |
+| `probe.rs` V2 | Adiciona `ExternalController::new` + `esp-storage` smoke test (read/erase/write) | ✅ Heartbeat + `aa` persistiu entre flashes |
+| `probe.rs` V3 | Adiciona `Usb::new()` DEPOIS de BLE + storage já inicializados | ✅ VID 4C4B:0002 enumera, digita 'c' a cada 3s |
+
+**Conclusão:** todos os subsistemas funcionam individualmente e juntos. O problema está dentro da função `rmk::ble::run_ble` que o macro expande — especificamente nos `.await` pré-`join` (etapas (c) e (d) do relatório do agent: leitura de `StorageKey::ConnectionType`, `profile_manager.load_bonded_devices(storage).await`). Esses `.await` travam indefinidamente e o `join(ble_task, usb_task)` nunca é alcançado, então o USB device stack nunca começa a ser polled.
+
+### Workaround adotado — `central_v2.rs`
+
+Binário paralelo em `dongle/src/bin/central_v2.rs` que **não usa `#[rmk_keyboard]`**. Reimplementa o init manualmente com a ordem:
+
+1. `esp-hal::init` + heap 72 KiB
+2. `TimerGroup::new(TIMG0)` + `SoftwareInterruptControl::new`
+3. `esp_rtos::start(timer, sw_int.software_interrupt0)`
+4. `TrngSource::new` + `Trng::try_new`
+5. `BleConnector::new(BT, Default)` + `ExternalController::new` (idle)
+6. `FlashStorage::new(FLASH)` (reservado pro futuro bonding)
+7. `Usb::new(USB0, GPIO20, GPIO19)` + `Driver::new` + `embassy_usb::Builder`
+8. HID class keyboard (boot-protocol, 8-byte reports)
+9. `usbd.run().await` — única tarefa no executor
+
+Resultado: o dongle enumera como VID 4C4B:4643 "Charybdis 3x6 Wireless" imediatamente e fica idle aguardando eventos BLE dos peripherals (ainda não implementado). Quando os firmwares left/right estiverem prontos, adicionar uma task paralela a `usbd.run()` que recebe BLE e injeta reports no `writer`.
+
+### Lições
+
+- **`esp-hal-embassy 0.9.x` está incompatível com `esp-hal 1.0.0` final.** A feature interna `__esp_hal_embassy` foi removida no release final mas `esp-hal-embassy` ainda a requer. Substituto oficial: `esp-rtos 0.2` com feature `embassy`.
+- **USB OTG e USB-Serial/JTAG compartilham GPIO19/20 no ESP32-S3.** Assim que `Usb::new()` roda, o JTAG morre — logs pós-USB só via UART0 externa.
+- **O macro `#[rmk_keyboard]` esconde um fluxo síncrono-depois-async complexo** que não tem timeouts nem recovery. Para uso em produção com visibilidade de debug, expansão manual é obrigatória.
+- **CI verde + flash bem-sucedido não garante firmware funcional.** Diagnóstico do runtime exige logs via serial pré-OTG ou UART externa.
+
+### Pendências
+
+- [ ] Abrir issue em `haobogu/rmk` sobre travamento de `run_ble` no ESP32-S3 BLE central com NVS vazia / sem peripherals pareados
+- [ ] Investigar se `async_flash_wrapper` do RMK é a causa raiz ou se é `Storage::new` com marker inválido
+- [ ] Consolidar `central.rs` (macro) em favor de `central_v2.rs` quando o fluxo BLE estiver integrado

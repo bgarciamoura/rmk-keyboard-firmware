@@ -20,7 +20,6 @@
 use core::ptr::addr_of_mut;
 
 use embassy_executor::Spawner;
-use embassy_futures::join::join;
 use embassy_time::{Duration, Timer};
 use embassy_usb::class::hid::{Config as HidConfig, HidReaderWriter, State};
 use embassy_usb::{Builder, Config};
@@ -45,14 +44,6 @@ use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 esp_bootloader_esp_idf::esp_app_desc!();
 
 static mut EP_MEMORY: [u8; 1024] = [0; 1024];
-
-// Prova de vida: keycode 0x15 = 'r'. Com modifier LShift (bit 1) fica 'R'.
-// Espaço de 30s entre cada — discreto o suficiente pra não atrapalhar uso
-// normal do computador, visível o suficiente pra confirmar que o dongle
-// está vivo.
-const REPORT_PRESS_R: [u8; 8] = [0x02, 0, 0x15, 0, 0, 0, 0, 0];
-const REPORT_RELEASE: [u8; 8] = [0; 8];
-const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 
 #[esp_rtos::main]
 async fn main(_spawner: Spawner) {
@@ -129,24 +120,11 @@ async fn main(_spawner: Spawner) {
     };
     let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, hid_config);
     let mut usbd = builder.build();
-    let (_reader, mut writer) = hid.split();
+    let (_reader, _writer) = hid.split();
 
-    // Duas tasks em paralelo:
-    // - usbd.run() poll contínuo do device stack USB.
-    // - heartbeat 'R' a cada 30s.
-    // Quando as metades BLE existirem, adicionar aqui uma terceira task que
-    // recebe eventos BLE e injeta reports no writer.
-    let run_usb = usbd.run();
-    let heartbeat = async {
-        // Primeira piscada só após enumeração estabilizar.
-        Timer::after(Duration::from_secs(3)).await;
-        loop {
-            let _ = writer.write(&REPORT_PRESS_R).await;
-            Timer::after(Duration::from_millis(30)).await;
-            let _ = writer.write(&REPORT_RELEASE).await;
-            Timer::after(Duration::from_secs(HEARTBEAT_INTERVAL_SECS)).await;
-        }
-    };
-
-    join(run_usb, heartbeat).await;
+    // Só polla o USB device stack. O _writer fica disponível para quando a
+    // task BLE for adicionada (vai receber eventos dos peripherals e chamar
+    // _writer.write(&report).await). Sem heartbeat automático — o dongle
+    // enumera como teclado válido e fica idle até as metades enviarem algo.
+    usbd.run().await;
 }
