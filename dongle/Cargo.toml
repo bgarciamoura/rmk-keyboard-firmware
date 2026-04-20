@@ -50,6 +50,7 @@ rand_core = { version = "0.6", default-features = false }
 # Usadas diretamente pelo bin probe (no central.rs vêm transitivamente do rmk).
 embassy-time = { version = "0.4" }
 log = { version = "0.4" }
+embedded-storage = { version = "0.3" }
 
 [build-dependencies]
 # Usado pelo build.rs para gerar config_generated.rs com VIAL_KEYBOARD_DEF/ID

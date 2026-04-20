@@ -30,6 +30,10 @@
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 
+use bt_hci::controller::ExternalController;
+
+use embedded_storage::nor_flash::NorFlash;
+
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
@@ -38,7 +42,15 @@ use esp_hal::timer::timg::TimerGroup;
 
 use esp_radio::ble::controller::BleConnector;
 
+use esp_storage::FlashStorage;
+
 use log::info;
+
+// Offset da região de storage na partição `factory` — o app ocupa até
+// ~0x44000 dentro dela, então 0x3f0000 é espaço vazio seguro para smoke test.
+// É perto de onde o RMK aponta seu storage por padrão.
+const STORAGE_OFFSET: u32 = 0x3f_0000;
+const SECTOR_SIZE: u32 = 0x1000;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -88,21 +100,86 @@ async fn main(_spawner: Spawner) {
     let _rng = Trng::try_new().expect("Trng::try_new falhou");
     info!("passo 8/9: OK");
 
-    // Passo 9 — SUSPECT #1. BleConnector::new traz o radio BT up via esp-rtos.
-    // Se o esp-rtos não subiu completo no passo 6, isto trava SEM timeout,
-    // SEM await, SEM panic visível — o executor simplesmente para.
-    info!("passo 9/9: BleConnector::new(BT, default) <=== SUSPECT #1");
-    let _connector = BleConnector::new(peripherals.BT, Default::default())
+    // Passo 9 — SUSPECT #1 (confirmado OK na V1 do probe). BleConnector::new
+    // traz o radio BT up via esp-rtos.
+    info!("passo 9: BleConnector::new(BT, default)");
+    let connector = BleConnector::new(peripherals.BT, Default::default())
         .expect("BleConnector::new falhou");
-    info!("passo 9/9: OK — radio BT up");
+    info!("passo 9: OK — radio BT up");
 
-    info!("=== todos os 9 passos de init completados ===");
-    info!("=== entrando em loop heartbeat; sem USB, sem storage ===");
+    // Passo 10 — ExternalController<_, 20> envolve o connector num wrapper
+    // bt-hci. N=20 é o tamanho da queue de comandos (igual ao exemplo RMK).
+    info!("passo 10: ExternalController::new(connector) [bt-hci wrapper, N=20]");
+    let _controller: ExternalController<_, 20> = ExternalController::new(connector);
+    info!("passo 10: OK");
 
-    // Heartbeat — apenas imprime um contador a cada segundo. Se você vê isto
-    // no monitor, passos 1-9 estão todos OK e o problema do F1 está em:
-    // (a) Usb::new()/Driver::new() panica, (b) storage init trava,
-    // (c) run_ble host stack trava.
+    // Passo 11 — FlashStorage::new(). Wrapper do esp-storage sobre a SPI flash
+    // interna. Não faz I/O ainda, só reserva o handle.
+    info!("passo 11: FlashStorage::new()");
+    let mut flash = FlashStorage::new();
+    info!(
+        "passo 11: OK — capacity={} bytes",
+        embedded_storage::nor_flash::ReadNorFlash::capacity(&flash)
+    );
+
+    // Passo 12 — Smoke test de leitura. Lê 32 bytes numa região que deveria
+    // estar sem uso (offset 0x3f0000). Se bloquear, o problema de storage é
+    // no driver esp-storage (hw/patch).
+    info!("passo 12: read 32 bytes @ 0x{:08x}", STORAGE_OFFSET);
+    let mut read_buf = [0u8; 32];
+    match embedded_storage::nor_flash::ReadNorFlash::read(
+        &mut flash,
+        STORAGE_OFFSET,
+        &mut read_buf,
+    ) {
+        Ok(_) => info!(
+            "passo 12: OK — primeiros 8 bytes: {:02x?}",
+            &read_buf[..8]
+        ),
+        Err(_) => info!("passo 12: ERRO no read"),
+    }
+
+    // Passo 13 — Erase de 1 setor. Se travar, o caminho de erase do
+    // esp-storage tem problema (suspeito forte pro init RMK que faz erase_all
+    // em 16 setores).
+    info!(
+        "passo 13: erase sector [0x{:08x}..0x{:08x})",
+        STORAGE_OFFSET,
+        STORAGE_OFFSET + SECTOR_SIZE
+    );
+    match NorFlash::erase(&mut flash, STORAGE_OFFSET, STORAGE_OFFSET + SECTOR_SIZE) {
+        Ok(_) => info!("passo 13: OK"),
+        Err(_) => info!("passo 13: ERRO no erase"),
+    }
+
+    // Passo 14 — Write de 32 bytes no setor recém-apagado.
+    info!("passo 14: write 32 bytes @ 0x{:08x}", STORAGE_OFFSET);
+    let write_buf = [0xAAu8; 32];
+    match NorFlash::write(&mut flash, STORAGE_OFFSET, &write_buf) {
+        Ok(_) => info!("passo 14: OK"),
+        Err(_) => info!("passo 14: ERRO no write"),
+    }
+
+    // Passo 15 — Read-back para validar o write.
+    info!("passo 15: read-back @ 0x{:08x}", STORAGE_OFFSET);
+    let mut verify_buf = [0u8; 32];
+    match embedded_storage::nor_flash::ReadNorFlash::read(
+        &mut flash,
+        STORAGE_OFFSET,
+        &mut verify_buf,
+    ) {
+        Ok(_) if verify_buf == write_buf => info!("passo 15: OK — write verificado"),
+        Ok(_) => info!(
+            "passo 15: MISMATCH — esperado {:02x?}, leu {:02x?}",
+            &write_buf[..8],
+            &verify_buf[..8]
+        ),
+        Err(_) => info!("passo 15: ERRO no read-back"),
+    }
+
+    info!("=== passos 1-15 completados (USB HID intencionalmente ignorado) ===");
+    info!("=== heartbeat loop ativo ===");
+
     let mut n: u32 = 0;
     loop {
         Timer::after(Duration::from_secs(1)).await;
