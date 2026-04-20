@@ -25,7 +25,7 @@ bench = false
 # esp-rtos substitui o antigo esp-hal-embassy (abandonado quando esp-hal 1.0
 # final saiu: a feature interna __esp_hal_embassy foi removida mas esp-hal-embassy
 # 0.9.x ainda a requer). esp-rtos é a runtime embassy oficial da esp-rs hoje.
-esp-rtos               = { version = "0.2", features = ["embassy", "log-04"] }
+esp-rtos               = { version = "0.2", features = ["esp32s3", "embassy", "log-04"] }
 esp-hal                = { version = "=1.0.0", features = ["esp32s3", "log-04", "unstable"] }
 esp-backtrace          = { version = "0.18.1", features = ["esp32s3", "panic-handler", "println"] }
 esp-println            = { version = "0.16.1", features = ["esp32s3", "log-04"] }
