@@ -174,6 +174,20 @@ async fn main(_spawner: Spawner) {
     bl.set_high();
     info!("BL: ON");
 
+    // Diagnóstico antes do fill: comandos MIPI-padrão que não dependem de
+    // RAMWR. Se qualquer um deles afetar a tela, sabemos que o init chegou
+    // e o problema é só no fill (CASET/RASET/RAMWR via SPI bulk).
+    //
+    // 0x23 = ALL_PIXELS_ON — tela inteira deve ficar branca
+    // 0x22 = ALL_PIXELS_OFF — tela volta ao modo normal (mostra o RAM)
+    info!("diagnóstico: ALLPON (tela deve ficar BRANCA por 3s)");
+    write_cmd(&mut spi, &mut cs, &mut dc, 0x23);
+    Timer::after(Duration::from_secs(3)).await;
+
+    info!("diagnóstico: ALLPOFF (tela volta ao RAM — deve ficar PRETA 3s)");
+    write_cmd(&mut spi, &mut cs, &mut dc, 0x22);
+    Timer::after(Duration::from_secs(3)).await;
+
     // Set window pra área visível inteira e começar memory write.
     write_cmd(&mut spi, &mut cs, &mut dc, 0x2A);
     write_data(
