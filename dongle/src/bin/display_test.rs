@@ -102,15 +102,18 @@ const INIT_SEQ: &[InitCmd] = &[
     (0x21, &[], 0),                                                            // INVON
 ];
 
-/// Envia um comando: DC=low, CS=low, byte, CS=high.
+/// Envia um comando: DC=low, CS=low, byte, flush, CS=high.
+/// O flush() é crítico: SpiBus::write() pode retornar antes do último bit
+/// sair do MOSI. Sem flush, cs.set_high() aborta a transação no meio.
 fn write_cmd<S: SpiBus>(spi: &mut S, cs: &mut Output, dc: &mut Output, cmd: u8) {
     dc.set_low();
     cs.set_low();
     let _ = spi.write(&[cmd]);
+    let _ = spi.flush();
     cs.set_high();
 }
 
-/// Envia um bloco de dados: DC=high, CS=low, bytes, CS=high.
+/// Envia um bloco de dados: DC=high, CS=low, bytes, flush, CS=high.
 fn write_data<S: SpiBus>(spi: &mut S, cs: &mut Output, dc: &mut Output, data: &[u8]) {
     if data.is_empty() {
         return;
@@ -118,6 +121,7 @@ fn write_data<S: SpiBus>(spi: &mut S, cs: &mut Output, dc: &mut Output, data: &[
     dc.set_high();
     cs.set_low();
     let _ = spi.write(data);
+    let _ = spi.flush();
     cs.set_high();
 }
 
@@ -140,11 +144,11 @@ async fn main(_spawner: Spawner) {
     let mut rst = Output::new(peripherals.GPIO40, Level::High, out_cfg);
     let mut bl = Output::new(peripherals.GPIO46, Level::Low, out_cfg);
 
-    // SPI2 a 80 MHz, Mode 0 — mesmo valor que o bsp_display.c do mimiclaw
-    // usa (EXAMPLE_LCD_PIXEL_CLOCK_HZ = 80 * 1000 * 1000). SPI2 do ESP32-S3
-    // permite qualquer GPIO via matrix.
+    // SPI2 a 1 MHz pra desbugar — ultra lento pra eliminar qualquer timing
+    // issue. Se funcionar a 1 MHz mas não a 80 MHz, sabemos que é clock.
+    // Depois de confirmar, voltar pra 80 MHz ou usar DMA.
     let spi_config = SpiConfig::default()
-        .with_frequency(Rate::from_mhz(80))
+        .with_frequency(Rate::from_mhz(1))
         .with_mode(Mode::_0);
     let mut spi = Spi::new(peripherals.SPI2, spi_config)
         .expect("SPI init falhou")
