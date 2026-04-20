@@ -27,8 +27,13 @@
 #![no_std]
 #![no_main]
 
+use core::ptr::addr_of_mut;
+
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_time::{Duration, Timer};
+use embassy_usb::class::hid::{Config as HidConfig, HidReaderWriter, State};
+use embassy_usb::{Builder, Config};
 
 use bt_hci::controller::ExternalController;
 
@@ -37,6 +42,8 @@ use embedded_storage::nor_flash::NorFlash;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
+use esp_hal::otg_fs::Usb;
+use esp_hal::otg_fs::asynch::{Config as DrvCfg, Driver};
 use esp_hal::rng::{Trng, TrngSource};
 use esp_hal::timer::timg::TimerGroup;
 
@@ -45,12 +52,21 @@ use esp_radio::ble::controller::BleConnector;
 use esp_storage::FlashStorage;
 
 use log::info;
+use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 
 // Offset da região de storage na partição `factory` — o app ocupa até
 // ~0x44000 dentro dela, então 0x3f0000 é espaço vazio seguro para smoke test.
 // É perto de onde o RMK aponta seu storage por padrão.
 const STORAGE_OFFSET: u32 = 0x3f_0000;
 const SECTOR_SIZE: u32 = 0x1000;
+
+// Endpoint memory para o driver USB OTG.
+static mut EP_MEMORY: [u8; 1024] = [0; 1024];
+
+// HID keyboard boot-protocol reports (8 bytes). Keycode 0x06 = 'c' — escolhido
+// para distinguir de 'a' do usbtest e do 'b' que o F1 real tentaria digitar.
+const REPORT_PRESS_C: [u8; 8] = [0, 0, 0x06, 0, 0, 0, 0, 0];
+const REPORT_RELEASE: [u8; 8] = [0; 8];
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -177,13 +193,71 @@ async fn main(_spawner: Spawner) {
         Err(_) => info!("passo 15: ERRO no read-back"),
     }
 
-    info!("=== passos 1-15 completados (USB HID intencionalmente ignorado) ===");
-    info!("=== heartbeat loop ativo ===");
+    // Passo 16 — Usb::new() + Driver::new() com BLE e storage já inicializados.
+    // Diferente do usbtest/ que chama Usb::new() como primeira coisa, aqui ele
+    // só é chamado DEPOIS que o BleConnector/ExternalController estão ativos
+    // e o flash já foi exercitado. Se o probe enumera como HID nesta ordem, o
+    // problema do F1 é em run_ble (depois de Usb::new); se não enumera, o
+    // problema é a coexistência BLE + USB OTG no ESP32-S3.
+    //
+    // IMPORTANTE: a partir de Usb::new() o USB-JTAG nativo morre. Os `info!`
+    // que vierem depois não chegam ao host via COM13 — só via UART externa.
+    // Por isso colocamos um delay de 3s para o buffer do esp-println esvaziar.
+    info!("passo 16: === PREPARANDO Usb::new em 3s — USB-JTAG vai morrer ===");
+    Timer::after(Duration::from_secs(3)).await;
 
-    let mut n: u32 = 0;
-    loop {
-        Timer::after(Duration::from_secs(1)).await;
-        info!("alive: n={}", n);
-        n = n.wrapping_add(1);
-    }
+    let usb = Usb::new(peripherals.USB0, peripherals.GPIO20, peripherals.GPIO19);
+    let driver = Driver::new(
+        usb,
+        unsafe { &mut *addr_of_mut!(EP_MEMORY) },
+        DrvCfg::default(),
+    );
+
+    // Passo 17 — Builder USB + HID class. Mesmo shape do usbtest.
+    let mut config = Config::new(0x4C4B, 0x0002);
+    config.manufacturer = Some("RMK-probe");
+    config.product = Some("probe HID");
+    config.serial_number = Some("0003");
+    config.max_power = 100;
+    config.max_packet_size_0 = 64;
+
+    let mut config_descriptor = [0u8; 256];
+    let mut bos_descriptor = [0u8; 256];
+    let mut msos_descriptor = [0u8; 256];
+    let mut control_buf = [0u8; 64];
+    let mut state = State::new();
+
+    let mut builder = Builder::new(
+        driver,
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut msos_descriptor,
+        &mut control_buf,
+    );
+
+    let hid_config = HidConfig {
+        report_descriptor: KeyboardReport::desc(),
+        request_handler: None,
+        poll_ms: 60,
+        max_packet_size: 64,
+    };
+    let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, hid_config);
+    let mut usbd = builder.build();
+    let (_reader, mut writer) = hid.split();
+
+    // Passo 18 — usbd.run() + keypress 'c' a cada 3s. Mesmo padrão do usbtest.
+    // Se aparecer VID 4C4B:0002 no host e 'c' for digitado, todos os subsistemas
+    // coexistem OK — problema do F1 está dentro do run_ble do RMK.
+    let run_usb = usbd.run();
+    let key_loop = async {
+        loop {
+            Timer::after(Duration::from_secs(3)).await;
+            let _ = writer.write(&REPORT_PRESS_C).await;
+            Timer::after(Duration::from_millis(20)).await;
+            let _ = writer.write(&REPORT_RELEASE).await;
+        }
+    };
+
+    join(run_usb, key_loop).await;
 }
