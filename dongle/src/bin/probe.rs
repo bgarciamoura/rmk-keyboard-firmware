@@ -113,10 +113,10 @@ async fn main(_spawner: Spawner) {
     let _controller: ExternalController<_, 20> = ExternalController::new(connector);
     info!("passo 10: OK");
 
-    // Passo 11 — FlashStorage::new(). Wrapper do esp-storage sobre a SPI flash
-    // interna. Não faz I/O ainda, só reserva o handle.
-    info!("passo 11: FlashStorage::new()");
-    let mut flash = FlashStorage::new();
+    // Passo 11 — FlashStorage::new(FLASH). Wrapper do esp-storage sobre a SPI
+    // flash interna. Não faz I/O ainda, só reserva o handle + peripheral.
+    info!("passo 11: FlashStorage::new(FLASH)");
+    let mut flash = FlashStorage::new(peripherals.FLASH);
     info!(
         "passo 11: OK — capacity={} bytes",
         embedded_storage::nor_flash::ReadNorFlash::capacity(&flash)
