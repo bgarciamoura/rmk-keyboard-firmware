@@ -10,6 +10,18 @@ path = "src/central.rs"
 test = false
 bench = false
 
+# Probe de diagnóstico — reproduz os passos de init do RMK esp32s3_ble
+# até BleConnector::new (suspect #1), PULA o Usb::new() de propósito para
+# manter o USB-JTAG vivo e transmitir os info! para o host. Se o probe
+# chega ao loop heartbeat, sabemos que passos 1-9 do RMK estão OK e o
+# travamento do F1 está em storage/run_ble/USB. Se trava antes, o último
+# log aponta onde.
+[[bin]]
+name = "probe"
+path = "src/bin/probe.rs"
+test = false
+bench = false
+
 [dependencies]
 # rmk do git main porque crates.io 0.7.x não expõe a feature `vial` (e outras
 # features que queremos já estão só em main). Quando sair versão > 0.7.8 com

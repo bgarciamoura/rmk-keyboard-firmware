@@ -1,0 +1,58 @@
+name: probe — RMK init diagnostic
+
+# Workflow paralelo ao build-f2.yml. Roda apenas em mudanças do probe
+# (dongle/src/bin/probe.rs ou este workflow). Produz probe.bin que
+# reproduz os passos 1-9 do init do RMK esp32s3_ble, sem chamar Usb::new()
+# — o USB-JTAG nativo continua vivo e os info! chegam ao host.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "dongle/src/bin/probe.rs"
+      - "dongle/Cargo.toml"
+      - ".github/workflows/build-probe.yml"
+
+jobs:
+  build-probe:
+    name: build-probe (RMK init trace)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dongle
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dongle -> target
+          shared-key: esp32s3-probe
+          cache-on-failure: true
+
+      - name: Install ESP Xtensa toolchain
+        uses: esp-rs/xtensa-toolchain@v1.5
+        with:
+          ldproxy: true
+          default: true
+          buildtargets: esp32s3
+
+      - name: Install espflash
+        run: cargo install espflash --locked
+
+      - name: Build probe (release)
+        run: cargo build --release --bin probe
+
+      - name: Produce flashable merged image
+        run: |
+          espflash save-image \
+            --chip esp32s3 \
+            --merge \
+            target/xtensa-esp32s3-none-elf/release/probe \
+            probe.bin
+
+      - name: Upload probe.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-bin
+          path: dongle/probe.bin
