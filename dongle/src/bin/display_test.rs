@@ -26,7 +26,7 @@ use embedded_hal::spi::SpiBus;
 
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Level, Output};
+use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::spi::Mode;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
@@ -121,10 +121,11 @@ async fn main(_spawner: Spawner) {
     info!("esp-hal + esp-rtos: OK");
 
     // Pinos de controle (CS idle high, DC inicialmente low, BL OFF durante init).
-    let mut cs = Output::new(peripherals.GPIO21, Level::High);
-    let mut dc = Output::new(peripherals.GPIO45, Level::Low);
-    let mut rst = Output::new(peripherals.GPIO40, Level::High);
-    let mut bl = Output::new(peripherals.GPIO46, Level::Low);
+    let out_cfg = OutputConfig::default();
+    let mut cs = Output::new(peripherals.GPIO21, Level::High, out_cfg);
+    let mut dc = Output::new(peripherals.GPIO45, Level::Low, out_cfg);
+    let mut rst = Output::new(peripherals.GPIO40, Level::High, out_cfg);
+    let mut bl = Output::new(peripherals.GPIO46, Level::Low, out_cfg);
 
     // SPI2 a 40 MHz, Mode 0. SPI2 do ESP32-S3 permite qualquer GPIO via matrix.
     let spi_config = SpiConfig::default()
