@@ -82,6 +82,7 @@ embedded-storage = { version = "0.3" }
 usbd-hid = { version = "0.9" }
 embedded-hal = { version = "1.0" }
 embedded-graphics = { version = "0.8" }
+heapless = { version = "0.8" }
 
 [build-dependencies]
 # Usado pelo build.rs para gerar config_generated.rs com VIAL_KEYBOARD_DEF/ID

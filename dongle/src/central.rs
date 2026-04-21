@@ -1,15 +1,20 @@
-// F3 MVP — dongle com RMK + display JD9853 "Hello RMK" estático.
+// F3 — dongle com RMK + display JD9853 + render loop paralelo.
 //
-// Estratégia: `#[overwritten(chip_init)]` substitui o chip_init default da
-// macro rmk_keyboard. Replicamos o default literal e intercalamos, entre
-// `esp_rtos::start` e `BleConnector::new`, o bring-up do display SPI2 +
-// init sequence JD9853 + draw "Hello RMK".
+// Arquitetura:
+// - `#[overwritten(chip_init)]`: roda o chip_init default (esp-hal + RTOS +
+//   BLE controller + build_ble_stack). NÃO inicializa o display.
+// - `#[register_processor(poll)]`: body inicializa SPI2 + GPIOs + JD9853,
+//   desenha o layout estático (fundo + barra + título), retorna um
+//   `DisplayUi` que vira task paralela do `run_rmk` via `PollingProcessor`.
+// - Struct `DisplayUi` (crate root, macro rmk-macro descarta structs dentro
+//   do mod keyboard) implementa `PollingProcessor` via `#[processor]` —
+//   método `poll()` atualiza o contador a cada 500 ms.
 //
-// O driver propriamente dito vive em `rmk_dongle::drivers::jd9853` (lib
-// compartilhada com `display_hello.rs`). Este arquivo só orquestra o init.
-//
-// Pinos consumidos pelo display (zero colisão com USB/BLE/Flash/matrix):
-//   SCLK GPIO38, MOSI GPIO39, CS GPIO21, DC GPIO45, RST GPIO40, BL GPIO46.
+// Por que `register_processor` e não init no chip_init: o struct precisa
+// sobreviver até o `join` final. Se init acontecesse em chip_init, teríamos
+// que mover o display via static/StaticCell. Fazer tudo no register_processor
+// mantém ownership simples — o body cria o struct, o macro guarda em `let
+// mut display_ui = { body };` e chama `.polling_loop().await` no join.
 
 #![no_std]
 #![no_main]
@@ -17,9 +22,11 @@
 use esp_backtrace as _;
 
 // ============================================================================
-// Imports em crate root. A macro rmk_keyboard copia os `use` do `mod keyboard`
-// também pra este escopo — duplicá-los dá E0252 "defined multiple times".
+// Imports em crate root. A rmk-macro copia os `use` do `mod keyboard` pra cá;
+// por isso não duplicamos (E0252).
 // ============================================================================
+
+use core::fmt::Write as _;
 
 use embassy_time::{Duration, Timer};
 
@@ -35,22 +42,81 @@ use esp_hal::spi::Mode;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::Rate;
 
+use heapless::String;
+
 use log::info;
 
+use rmk::event::KeyboardEvent;
+use rmk::macros::{processor, rmk_keyboard};
 use rmk_dongle::drivers::jd9853::{INIT_SEQ, Jd9853Display, LCD_W};
 
-use rmk::macros::rmk_keyboard;
+// ============================================================================
+// Tipo concreto do SPI do dongle. esp-hal 1.0 retorna
+// `Spi<'d, DM>` onde DM=Blocking por default. Pinos owned → lifetime `'static`.
+// ============================================================================
+type DongleSpi = esp_hal::spi::master::Spi<'static, esp_hal::Blocking>;
+
+// ============================================================================
+// DisplayUi — struct que vive no `join` final como PollingProcessor.
+//
+// O atributo `#[processor(...)]` (rmk::macros::processor) gera impls de
+// Processor + PollingProcessor + Runnable. Assinamos KeyboardEvent só porque
+// o supertrait exige pelo menos um evento; o handler é no-op.
+//
+// Campos `rst` e `bl` ficam no struct pra evitar o Drop (que resetaria GPIO
+// como input flutuante, apagando a tela e soltando o backlight).
+// ============================================================================
+
+#[processor(subscribe = [KeyboardEvent], poll_interval = 500)]
+pub struct DisplayUi {
+    display: Jd9853Display<'static, DongleSpi>,
+    counter: u32,
+    _rst: Output<'static>,
+    _bl: Output<'static>,
+}
+
+impl DisplayUi {
+    // Handler obrigatório pra cada evento assinado. Ignoramos — só precisamos
+    // do poll().
+    async fn on_keyboard_event(&mut self, _event: KeyboardEvent) {}
+
+    // Chamado pelo PollingProcessor default a cada 500 ms.
+    async fn poll(&mut self) {
+        // Limpa a faixa do contador (y=28..48, logo abaixo da barra verde).
+        let _ = Rectangle::new(Point::new(0, 28), Size::new(LCD_W as u32, 20))
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .fill_color(Rgb565::new(3, 6, 12))
+                    .build(),
+            )
+            .draw(&mut self.display);
+
+        let style = MonoTextStyleBuilder::new()
+            .font(&FONT_10X20)
+            .text_color(Rgb565::new(28, 56, 28))
+            .build();
+
+        let mut buf: String<32> = String::new();
+        let _ = write!(buf, "tick: {}", self.counter);
+        let _ = Text::with_baseline(buf.as_str(), Point::new(6, 30), style, Baseline::Top)
+            .draw(&mut self.display);
+
+        self.counter = self.counter.wrapping_add(1);
+    }
+}
+
+// ============================================================================
+// Módulo consumido pela rmk-macro.
+// ============================================================================
 
 #[rmk_keyboard]
 mod keyboard {
-    // Override textual do chip_init default — corpo é colado verbatim no main
-    // gerado pela rmk-macro. Nomes contratuais no final do bloco: `p`, `stack`,
-    // `rng`. Guardas de lifetime: `_trng_source`, `host_resources`, `timg0`,
-    // `software_interrupt`.
+    // Override textual do chip_init default. Agora SEM display bring-up —
+    // display vai pro register_processor abaixo.
     #[overwritten(chip_init)]
-    async fn chip_init_with_display() {
+    async fn chip_init_default() {
         ::esp_println::logger::init_logger_from_env();
-        info!("=== chip_init_with_display: start ===");
+        info!("=== chip_init_default: start ===");
 
         let p = ::esp_hal::init(
             ::esp_hal::Config::default()
@@ -62,18 +128,46 @@ mod keyboard {
             ::esp_hal::interrupt::software::SoftwareInterruptControl::new(p.SW_INTERRUPT);
         ::esp_rtos::start(timg0.timer0, software_interrupt.software_interrupt0);
 
-        // ---- Display bring-up ----
-        info!("display: configurando pinos + SPI2 @ 80 MHz");
+        let _trng_source = ::esp_hal::rng::TrngSource::new(p.RNG, p.ADC1);
+        let mut rng = ::esp_hal::rng::Trng::try_new().unwrap();
+        let connector =
+            ::esp_radio::ble::controller::BleConnector::new(p.BT, Default::default()).unwrap();
+        let controller: ::bt_hci::controller::ExternalController<_, 64> =
+            ::bt_hci::controller::ExternalController::new(connector);
+        let ble_addr = [0xC0u8, 0xDE, 0xC0, 0xDE, 0x00, 0x01];
+        let mut host_resources = ::rmk::HostResources::new();
+        let stack = ::rmk::ble::build_ble_stack(
+            controller,
+            ble_addr,
+            &mut rng,
+            &mut host_resources,
+        )
+        .await;
+        if ::rmk::ble::passkey_entry_enabled() {
+            stack.set_io_capabilities(::rmk::IoCapabilities::KeyboardOnly);
+        }
+
+        info!("=== chip_init_default: done ===");
+    }
+
+    // Body inlined pela rmk-macro como:
+    //   let mut display_ui = { <body> };
+    // e depois empurrado no join final via `.polling_loop().await`.
+    // `p` está no escopo (criado no chip_init acima).
+    #[register_processor(poll)]
+    async fn display_ui() {
+        info!("display_ui: bring-up JD9853");
+
         let out_cfg = OutputConfig::default();
         let cs = Output::new(p.GPIO21, Level::High, out_cfg);
         let dc = Output::new(p.GPIO45, Level::Low, out_cfg);
         let mut rst = Output::new(p.GPIO40, Level::High, out_cfg);
         let mut bl = Output::new(p.GPIO46, Level::Low, out_cfg);
 
-        let spi_config = SpiConfig::default()
+        let spi_cfg = SpiConfig::default()
             .with_frequency(Rate::from_mhz(80))
             .with_mode(Mode::_0);
-        let spi = Spi::new(p.SPI2, spi_config)
+        let spi = Spi::new(p.SPI2, spi_cfg)
             .expect("SPI init falhou")
             .with_sck(p.GPIO38)
             .with_mosi(p.GPIO39);
@@ -84,8 +178,6 @@ mod keyboard {
         Timer::after(Duration::from_millis(150)).await;
 
         let mut display = Jd9853Display::new(spi, cs, dc);
-
-        info!("display: init sequence JD9853");
         for &(cmd, data, delay_ms) in INIT_SEQ {
             display.write_cmd(cmd, data);
             if delay_ms > 0 {
@@ -94,6 +186,7 @@ mod keyboard {
         }
         bl.set_high();
 
+        // Layout estático base — desenhado uma vez.
         let _ = display.clear(Rgb565::new(3, 6, 12));
 
         let _ = Rectangle::new(Point::new(0, 0), Size::new(LCD_W as u32, 28))
@@ -108,9 +201,8 @@ mod keyboard {
             .font(&FONT_10X20)
             .text_color(Rgb565::new(20, 60, 30))
             .build();
-        let _ =
-            Text::with_baseline("Hello RMK", Point::new(6, 4), title_style, Baseline::Top)
-                .draw(&mut display);
+        let _ = Text::with_baseline("Hello RMK", Point::new(6, 4), title_style, Baseline::Top)
+            .draw(&mut display);
 
         let sub_style = MonoTextStyleBuilder::new()
             .font(&FONT_6X10)
@@ -118,44 +210,19 @@ mod keyboard {
             .build();
         let _ = Text::with_baseline(
             "Charybdis 3x6 RMK",
-            Point::new(8, 44),
-            sub_style,
-            Baseline::Top,
-        )
-        .draw(&mut display);
-        let _ = Text::with_baseline(
-            "Display + USB OK",
             Point::new(8, 60),
             sub_style,
             Baseline::Top,
         )
         .draw(&mut display);
 
-        info!("display: Hello RMK pintado — cedendo controle ao RMK");
-
-        // Drop de Output esp-hal 1.0 devolve GPIO como input flutuante, apagando
-        // a tela e soltando o backlight. Os pinos GPIO21/38/39/40/45/46 não são
-        // reusados pelo RMK (usb_init usa GPIO19/20; matrix usa GPIO1/2).
-        core::mem::forget(display);
-        core::mem::forget(rst);
-        core::mem::forget(bl);
-
-        // ---- Continuação do chip_init default ----
-        let _trng_source = ::esp_hal::rng::TrngSource::new(p.RNG, p.ADC1);
-        let mut rng = ::esp_hal::rng::Trng::try_new().unwrap();
-        let connector = ::esp_radio::ble::controller::BleConnector::new(p.BT, Default::default())
-            .unwrap();
-        let controller: ::bt_hci::controller::ExternalController<_, 64> =
-            ::bt_hci::controller::ExternalController::new(connector);
-        let ble_addr = [0xC0u8, 0xDE, 0xC0, 0xDE, 0x00, 0x01];
-        let mut host_resources = ::rmk::HostResources::new();
-        let stack =
-            ::rmk::ble::build_ble_stack(controller, ble_addr, &mut rng, &mut host_resources)
-                .await;
-        if ::rmk::ble::passkey_entry_enabled() {
-            stack.set_io_capabilities(::rmk::IoCapabilities::KeyboardOnly);
+        // Valor do bloco — o macro espera expression-block avaliando ao
+        // Processor. `rst` e `bl` entram no struct pra evitar Drop.
+        DisplayUi {
+            display,
+            counter: 0,
+            _rst: rst,
+            _bl: bl,
         }
-
-        info!("=== chip_init_with_display: done ===");
     }
 }
