@@ -28,7 +28,7 @@ use esp_backtrace as _;
 
 use core::fmt::Write as _;
 
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
@@ -67,28 +67,46 @@ type DongleSpi = esp_hal::spi::master::Spi<'static, esp_hal::Blocking>;
 // como input flutuante, apagando a tela e soltando o backlight).
 // ============================================================================
 
+// ----------------------------------------------------------------------------
+// Layout do dashboard (coordenadas em pixels).
+//
+// y=0..28   barra verde com "Hello RMK"
+// y=32..52  "Uptime: HH:MM:SS"      FONT_10X20, atualiza a cada poll
+// y=56..72  "Layer: 0"              FONT_10X20, placeholder (3.2)
+// y=76..88  "BLE:   scanning"       FONT_6X10,  placeholder (3.3)
+// y=90..102 "L:     offline"        FONT_6X10,  placeholder (3.4)
+// y=104..116 "R:    offline"        FONT_6X10,  placeholder (3.4)
+// ----------------------------------------------------------------------------
+
+const UPTIME_Y: i32 = 32;
+const UPTIME_H: u32 = 20;
+
+const BG: Rgb565 = Rgb565::new(3, 6, 12);
+
 #[processor(subscribe = [KeyboardEvent], poll_interval = 500)]
 pub struct DisplayUi {
     display: Jd9853Display<'static, DongleSpi>,
-    counter: u32,
     _rst: Output<'static>,
     _bl: Output<'static>,
 }
 
 impl DisplayUi {
-    // Handler obrigatório pra cada evento assinado. Ignoramos — só precisamos
-    // do poll().
+    // Handler obrigatório do supertrait Processor. No-op por enquanto —
+    // em 3.2 vamos usar pra capturar mudanças de layer em tempo real.
     async fn on_keyboard_event(&mut self, _event: KeyboardEvent) {}
 
-    // Chamado pelo PollingProcessor default a cada 500 ms.
+    // Chamado pelo PollingProcessor default a cada 500 ms. Redesenha só
+    // o campo Uptime; os placeholders estáticos ficam intactos.
     async fn poll(&mut self) {
-        // Limpa a faixa do contador (y=28..48, logo abaixo da barra verde).
-        let _ = Rectangle::new(Point::new(0, 28), Size::new(LCD_W as u32, 20))
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .fill_color(Rgb565::new(3, 6, 12))
-                    .build(),
-            )
+        // Uptime em segundos desde o boot (embassy_time::Instant é monotônico).
+        let total_secs = Instant::now().as_secs();
+        let h = total_secs / 3600;
+        let m = (total_secs / 60) % 60;
+        let s = total_secs % 60;
+
+        // Limpa a faixa do uptime (172×20 logo abaixo da barra).
+        let _ = Rectangle::new(Point::new(0, UPTIME_Y), Size::new(LCD_W as u32, UPTIME_H))
+            .into_styled(PrimitiveStyleBuilder::new().fill_color(BG).build())
             .draw(&mut self.display);
 
         let style = MonoTextStyleBuilder::new()
@@ -97,11 +115,14 @@ impl DisplayUi {
             .build();
 
         let mut buf: String<32> = String::new();
-        let _ = write!(buf, "tick: {}", self.counter);
-        let _ = Text::with_baseline(buf.as_str(), Point::new(6, 30), style, Baseline::Top)
-            .draw(&mut self.display);
-
-        self.counter = self.counter.wrapping_add(1);
+        let _ = write!(buf, "Up {:02}:{:02}:{:02}", h, m, s);
+        let _ = Text::with_baseline(
+            buf.as_str(),
+            Point::new(6, UPTIME_Y + 2),
+            style,
+            Baseline::Top,
+        )
+        .draw(&mut self.display);
     }
 }
 
@@ -204,23 +225,28 @@ mod keyboard {
         let _ = Text::with_baseline("Hello RMK", Point::new(6, 4), title_style, Baseline::Top)
             .draw(&mut display);
 
-        let sub_style = MonoTextStyleBuilder::new()
-            .font(&FONT_6X10)
-            .text_color(Rgb565::new(18, 36, 18))
+        // Placeholders estáticos. 3.2/3.3/3.4 substituem por fontes reais.
+        let big = MonoTextStyleBuilder::new()
+            .font(&FONT_10X20)
+            .text_color(Rgb565::new(28, 56, 28))
             .build();
-        let _ = Text::with_baseline(
-            "Charybdis 3x6 RMK",
-            Point::new(8, 60),
-            sub_style,
-            Baseline::Top,
-        )
-        .draw(&mut display);
+        let dim = MonoTextStyleBuilder::new()
+            .font(&FONT_6X10)
+            .text_color(Rgb565::new(16, 34, 18))
+            .build();
 
-        // Valor do bloco — o macro espera expression-block avaliando ao
-        // Processor. `rst` e `bl` entram no struct pra evitar Drop.
+        let _ = Text::with_baseline("Layer: 0", Point::new(6, 56), big, Baseline::Top)
+            .draw(&mut display);
+        let _ = Text::with_baseline("BLE:  scanning", Point::new(6, 80), dim, Baseline::Top)
+            .draw(&mut display);
+        let _ = Text::with_baseline("L:    offline", Point::new(6, 94), dim, Baseline::Top)
+            .draw(&mut display);
+        let _ = Text::with_baseline("R:    offline", Point::new(6, 108), dim, Baseline::Top)
+            .draw(&mut display);
+
+        // Valor do bloco — `rst`/`bl` entram no struct pra evitar Drop.
         DisplayUi {
             display,
-            counter: 0,
             _rst: rst,
             _bl: bl,
         }
