@@ -46,7 +46,7 @@ use heapless::String;
 
 use log::info;
 
-use rmk::event::{KeyboardEvent, LayerChangeEvent};
+use rmk::event::{KeyboardEvent, LayerChangeEvent, PeripheralConnectedEvent};
 use rmk::macros::{processor, rmk_keyboard};
 use rmk_dongle::drivers::jd9853::{INIT_SEQ, Jd9853Display, LCD_W};
 
@@ -82,19 +82,29 @@ const UPTIME_Y: i32 = 32;
 const UPTIME_H: u32 = 20;
 const LAYER_Y: i32 = 56;
 const LAYER_H: u32 = 20;
+const LR_L_Y: i32 = 94;
+const LR_R_Y: i32 = 108;
+const LR_H: u32 = 10;
 
 const BG: Rgb565 = Rgb565::new(3, 6, 12);
 
-#[processor(subscribe = [KeyboardEvent, LayerChangeEvent], poll_interval = 500)]
+#[processor(
+    subscribe = [KeyboardEvent, LayerChangeEvent, PeripheralConnectedEvent],
+    poll_interval = 500
+)]
 pub struct DisplayUi {
     display: Jd9853Display<'static, DongleSpi>,
     _rst: Output<'static>,
     _bl: Output<'static>,
     last_layer: u8,
-    // Marca que o campo Layer: N precisa ser redesenhado no próximo poll.
     // LayerChangeEvent só é emitido em mudanças reais — `true` inicial
     // garante que o primeiro poll pinte o valor de boot (0).
     layer_dirty: bool,
+    // Estado de conexão dos peripherals split (id 0 = left, id 1 = right).
+    // bt_dirty=true inicial força primeiro poll a sobrescrever placeholders.
+    left_online: bool,
+    right_online: bool,
+    bt_dirty: bool,
 }
 
 impl DisplayUi {
@@ -111,6 +121,28 @@ impl DisplayUi {
         if new_layer != self.last_layer {
             self.last_layer = new_layer;
             self.layer_dirty = true;
+        }
+    }
+
+    // PeripheralConnectedEvent é emitido pelo run_ble_peripheral_manager do
+    // rmk::split::ble::central: connected=false antes de cada tentativa de
+    // conexão (inclusive reconnect após drop) e connected=true após connect
+    // bem-sucedido. `id` vem do índice em [[split.peripheral]]: 0=left, 1=right.
+    async fn on_peripheral_connected_event(&mut self, event: PeripheralConnectedEvent) {
+        match event.id {
+            0 => {
+                if self.left_online != event.connected {
+                    self.left_online = event.connected;
+                    self.bt_dirty = true;
+                }
+            }
+            1 => {
+                if self.right_online != event.connected {
+                    self.right_online = event.connected;
+                    self.bt_dirty = true;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -146,6 +178,43 @@ impl DisplayUi {
             let mut lbuf: String<16> = String::new();
             let _ = write!(lbuf, "Layer: {}", self.last_layer);
             let _ = Text::with_baseline(lbuf.as_str(), Point::new(6, LAYER_Y), big, Baseline::Top)
+                .draw(&mut self.display);
+        }
+
+        // ---- L/R peripheral status (só redesenha se bt_dirty) ----
+        if self.bt_dirty {
+            self.bt_dirty = false;
+
+            let style_on = MonoTextStyleBuilder::new()
+                .font(&FONT_6X10)
+                .text_color(Rgb565::new(20, 60, 30))
+                .build();
+            let style_off = MonoTextStyleBuilder::new()
+                .font(&FONT_6X10)
+                .text_color(Rgb565::new(16, 34, 18))
+                .build();
+
+            let _ = Rectangle::new(Point::new(0, LR_L_Y), Size::new(LCD_W as u32, LR_H))
+                .into_styled(PrimitiveStyleBuilder::new().fill_color(BG).build())
+                .draw(&mut self.display);
+            let _ = Rectangle::new(Point::new(0, LR_R_Y), Size::new(LCD_W as u32, LR_H))
+                .into_styled(PrimitiveStyleBuilder::new().fill_color(BG).build())
+                .draw(&mut self.display);
+
+            let (l_text, l_style) = if self.left_online {
+                ("L:    online", style_on)
+            } else {
+                ("L:    offline", style_off)
+            };
+            let (r_text, r_style) = if self.right_online {
+                ("R:    online", style_on)
+            } else {
+                ("R:    offline", style_off)
+            };
+
+            let _ = Text::with_baseline(l_text, Point::new(6, LR_L_Y), l_style, Baseline::Top)
+                .draw(&mut self.display);
+            let _ = Text::with_baseline(r_text, Point::new(6, LR_R_Y), r_style, Baseline::Top)
                 .draw(&mut self.display);
         }
     }
@@ -270,6 +339,9 @@ mod keyboard {
             _bl: bl,
             last_layer: 0,
             layer_dirty: true,
+            left_online: false,
+            right_online: false,
+            bt_dirty: true,
         }
     }
 }
