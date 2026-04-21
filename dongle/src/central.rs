@@ -22,14 +22,14 @@
 use esp_backtrace as _;
 
 // ============================================================================
-// Tipos e constantes do driver JD9853, em crate root.
+// Imports em crate root.
 //
-// Precisam ficar fora do `mod keyboard` porque o rmk-macro descarta
-// silenciosamente qualquer item dentro do módulo que não seja `use` ou `fn`
-// com atributo `#[overwritten]`/`#[register_processor]`. O corpo do
-// override é colado no main gerado (também em crate root), então daqui é
-// alcançável por nome simples.
+// A macro rmk_keyboard copia os `use` de dentro de `mod keyboard` também
+// para este escopo. Por isso os imports ficam SÓ aqui — duplicá-los dentro
+// do mod gera E0252 "defined multiple times".
 // ============================================================================
+
+use embassy_time::{Duration, Timer};
 
 use embedded_graphics::mono_font::MonoTextStyleBuilder;
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
@@ -40,7 +40,12 @@ use embedded_graphics::text::{Baseline, Text};
 
 use embedded_hal::spi::SpiBus;
 
-use esp_hal::gpio::Output;
+use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::spi::Mode;
+use esp_hal::spi::master::{Config as SpiConfig, Spi};
+use esp_hal::time::Rate;
+
+use log::info;
 
 // Janela visível do painel.
 const LCD_W: u16 = 172;
@@ -232,22 +237,9 @@ use rmk::macros::rmk_keyboard;
 
 #[rmk_keyboard]
 mod keyboard {
-    // `use`s são copiados pro topo do main gerado (expand_custom_imports).
-    use embassy_time::{Duration, Timer};
-
-    use embedded_graphics::mono_font::MonoTextStyleBuilder;
-    use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
-    use embedded_graphics::pixelcolor::Rgb565;
-    use embedded_graphics::prelude::*;
-    use embedded_graphics::primitives::{PrimitiveStyleBuilder, Rectangle};
-    use embedded_graphics::text::{Baseline, Text};
-
-    use esp_hal::gpio::{Level, Output, OutputConfig};
-    use esp_hal::spi::Mode;
-    use esp_hal::spi::master::{Config as SpiConfig, Spi};
-    use esp_hal::time::Rate;
-
-    use log::info;
+    // Imports ficam no crate root — a macro copia os `use` pro main e colide
+    // se houver duplicação. O corpo do override abaixo enxerga os nomes via
+    // imports de crate root (main fica no mesmo escopo).
 
     // Override textual do chip_init default (lido em
     // rmk-macro/src/codegen/chip/chip_init.rs ramo ChipSeries::Esp32,
