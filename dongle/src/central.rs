@@ -46,7 +46,7 @@ use heapless::String;
 
 use log::info;
 
-use rmk::event::KeyboardEvent;
+use rmk::event::{KeyboardEvent, LayerChangeEvent};
 use rmk::macros::{processor, rmk_keyboard};
 use rmk_dongle::drivers::jd9853::{INIT_SEQ, Jd9853Display, LCD_W};
 
@@ -80,49 +80,74 @@ type DongleSpi = esp_hal::spi::master::Spi<'static, esp_hal::Blocking>;
 
 const UPTIME_Y: i32 = 32;
 const UPTIME_H: u32 = 20;
+const LAYER_Y: i32 = 56;
+const LAYER_H: u32 = 20;
 
 const BG: Rgb565 = Rgb565::new(3, 6, 12);
 
-#[processor(subscribe = [KeyboardEvent], poll_interval = 500)]
+#[processor(subscribe = [KeyboardEvent, LayerChangeEvent], poll_interval = 500)]
 pub struct DisplayUi {
     display: Jd9853Display<'static, DongleSpi>,
     _rst: Output<'static>,
     _bl: Output<'static>,
+    last_layer: u8,
+    // Marca que o campo Layer: N precisa ser redesenhado no próximo poll.
+    // LayerChangeEvent só é emitido em mudanças reais — `true` inicial
+    // garante que o primeiro poll pinte o valor de boot (0).
+    layer_dirty: bool,
 }
 
 impl DisplayUi {
-    // Handler obrigatório do supertrait Processor. No-op por enquanto —
-    // em 3.2 vamos usar pra capturar mudanças de layer em tempo real.
+    // Supertrait Processor exige handler pra cada evento assinado. KeyboardEvent
+    // aqui é no-op — usado lá atrás só pra ter pelo menos um evento, porque
+    // PollingProcessor exige ao menos um subscriber.
     async fn on_keyboard_event(&mut self, _event: KeyboardEvent) {}
 
-    // Chamado pelo PollingProcessor default a cada 500 ms. Redesenha só
-    // o campo Uptime; os placeholders estáticos ficam intactos.
+    // Chamado a cada mudança de layer efetiva (MO/TG/TT/OSL/LT/TO/DF).
+    // Evento já traz a topmost-active layer como u8 — não precisamos
+    // reconstruir a stack.
+    async fn on_layer_change_event(&mut self, event: LayerChangeEvent) {
+        let new_layer = event.0;
+        if new_layer != self.last_layer {
+            self.last_layer = new_layer;
+            self.layer_dirty = true;
+        }
+    }
+
     async fn poll(&mut self) {
-        // Uptime em segundos desde o boot (embassy_time::Instant é monotônico).
+        // ---- Uptime (redesenha sempre) ----
         let total_secs = Instant::now().as_secs();
         let h = total_secs / 3600;
         let m = (total_secs / 60) % 60;
         let s = total_secs % 60;
 
-        // Limpa a faixa do uptime (172×20 logo abaixo da barra).
         let _ = Rectangle::new(Point::new(0, UPTIME_Y), Size::new(LCD_W as u32, UPTIME_H))
             .into_styled(PrimitiveStyleBuilder::new().fill_color(BG).build())
             .draw(&mut self.display);
 
-        let style = MonoTextStyleBuilder::new()
+        let big = MonoTextStyleBuilder::new()
             .font(&FONT_10X20)
             .text_color(Rgb565::new(28, 56, 28))
             .build();
 
         let mut buf: String<32> = String::new();
         let _ = write!(buf, "Up {:02}:{:02}:{:02}", h, m, s);
-        let _ = Text::with_baseline(
-            buf.as_str(),
-            Point::new(6, UPTIME_Y + 2),
-            style,
-            Baseline::Top,
-        )
-        .draw(&mut self.display);
+        let _ = Text::with_baseline(buf.as_str(), Point::new(6, UPTIME_Y + 2), big, Baseline::Top)
+            .draw(&mut self.display);
+
+        // ---- Layer (só redesenha se mudou) ----
+        if self.layer_dirty {
+            self.layer_dirty = false;
+
+            let _ = Rectangle::new(Point::new(0, LAYER_Y), Size::new(LCD_W as u32, LAYER_H))
+                .into_styled(PrimitiveStyleBuilder::new().fill_color(BG).build())
+                .draw(&mut self.display);
+
+            let mut lbuf: String<16> = String::new();
+            let _ = write!(lbuf, "Layer: {}", self.last_layer);
+            let _ = Text::with_baseline(lbuf.as_str(), Point::new(6, LAYER_Y), big, Baseline::Top)
+                .draw(&mut self.display);
+        }
     }
 }
 
@@ -225,18 +250,12 @@ mod keyboard {
         let _ = Text::with_baseline("Hello RMK", Point::new(6, 4), title_style, Baseline::Top)
             .draw(&mut display);
 
-        // Placeholders estáticos. 3.2/3.3/3.4 substituem por fontes reais.
-        let big = MonoTextStyleBuilder::new()
-            .font(&FONT_10X20)
-            .text_color(Rgb565::new(28, 56, 28))
-            .build();
+        // Placeholders BLE/L/R — 3.3/3.4 vão substituir. Layer é pintado
+        // pelo primeiro poll() (layer_dirty=true inicial no DisplayUi).
         let dim = MonoTextStyleBuilder::new()
             .font(&FONT_6X10)
             .text_color(Rgb565::new(16, 34, 18))
             .build();
-
-        let _ = Text::with_baseline("Layer: 0", Point::new(6, 56), big, Baseline::Top)
-            .draw(&mut display);
         let _ = Text::with_baseline("BLE:  scanning", Point::new(6, 80), dim, Baseline::Top)
             .draw(&mut display);
         let _ = Text::with_baseline("L:    offline", Point::new(6, 94), dim, Baseline::Top)
@@ -249,6 +268,8 @@ mod keyboard {
             display,
             _rst: rst,
             _bl: bl,
+            last_layer: 0,
+            layer_dirty: true,
         }
     }
 }
