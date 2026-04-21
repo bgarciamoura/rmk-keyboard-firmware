@@ -168,7 +168,6 @@ impl<'a, S: SpiBus> Jd9853Display<'a, S> {
         }
         self.end_ramwr();
     }
-}
 
     /// Desenha um bitmap 1 bpp (layout Adafruit_GFX: row-major, 8 pixels por
     /// byte, MSB = pixel mais à esquerda) em Rgb565. Suporta escala inteira
@@ -236,6 +235,8 @@ impl<'a, S: SpiBus> Jd9853Display<'a, S> {
         self.end_ramwr();
     }
 }
+
+// (fechamento acima corresponde ao impl principal; os traits vem em seguida)
 
 impl<'a, S: SpiBus> OriginDimensions for Jd9853Display<'a, S> {
     fn size(&self) -> Size {
