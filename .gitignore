@@ -4,6 +4,9 @@
 *.hex
 *.elf
 
+# Assets binários embedados no firmware (sprites, fontes) — exceção ao *.bin
+!dongle/src/assets/**/*.bin
+
 # Ferramentas externas baixadas localmente (não versionar binários)
 tools/*.exe
 
