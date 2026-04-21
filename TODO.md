@@ -75,9 +75,9 @@ Commit `1ee32be` (run `24689080197`, build 3m53s). Fix: adicionar `[storage] sta
 
 ---
 
-## F3 — Display driver (JD9853 via SPI)
+## F3 — Display driver (JD9853 via SPI) ✅ (pendências menores)
 
-Objetivo: tela acende e imprime "Hello RMK". Reaproveitar sequências de init de `C:\Users\bgarciamoura\projects\mimiclaw\components\esp_lcd_jd9853\esp_lcd_jd9853.c` (460 LoC C) como referência de port.
+Objetivo original: tela acende e imprime "Hello RMK". Expandido em 2026-04-20 pra dashboard completo + Bongo Cat. Apenas bateria L/R (3.4) pendente, esperando F1.1. Reaproveitou sequências de init de `C:\Users\bgarciamoura\projects\mimiclaw\components\esp_lcd_jd9853\esp_lcd_jd9853.c` (460 LoC C) como referência de port.
 
 - [x] Identificar pinos SPI do display na placa (GPIO38/39 + CS=21, DC=45, RST=40, BL=46) — confirmado via `projects/esp32s3/CLAUDE.md` + `mimiclaw/bsp_display.h`
 - [x] Port da sequência de init do JD9853 (34 comandos) de C → Rust em `dongle/src/bin/display_test.rs`
@@ -87,7 +87,11 @@ Objetivo: tela acende e imprime "Hello RMK". Reaproveitar sequências de init de
 - [x] **MVP F3 validado em hardware** (commit `0104d31`, run `24699971413`): display "Hello RMK" + RMK completo + Vial, tudo coexistindo. `#[overwritten(chip_init)]` comprovado como caminho limpo.
 - [x] Refatorar `Jd9853Display` de `central.rs` para módulo reutilizável (`dongle/src/drivers/jd9853.rs`) — concluído 2026-04-20 commit `97c4b6f`
 - [x] Task Embassy paralela via `#[register_processor(poll)]` — validado 2026-04-20 commit `f9ba97c` run `24700880799`. `DisplayUi` struct com `PollingProcessor` desenha "tick: N" a cada 500 ms sem quebrar USB/BLE/Vial
-- [ ] Substituir contador fake por estado real: (a) BLE pareado/idle, (b) peripherals L/R online, (c) layer atual, (d) bateria L/R
+- [x] **3.1** Dashboard skeleton com Uptime real (embassy_time::Instant) + placeholders — commit `4cafe99`
+- [x] **3.2** Layer real via `rmk::event::LayerChangeEvent(pub u8)` — commit `4599085`; dirty bit + redraw seletivo
+- [x] **3.3** Status L/R via `rmk::event::PeripheralConnectedEvent { id, connected }` — commit `3207048`; id 0=left, 1=right; disconnect coberto pelo loop de reconexão
+- [x] **Bongo Cat animando (128×128 @ 2×)** — commits `960b9bd`/`93a5bee`/`59b820c`, run `24702405690`. Estrutura: 13 sprites 64×64 @ 1 bpp extraídos via `tools/extract_bongo_sprites.py`, `rmk_dongle::assets::bongo` expõe `IDLE_FRAMES` + `TAP_*`, `jd9853::blit_bitmap_1bpp` com scale inteiro, `DisplayUi` state machine (idle 9 frames × 500 ms, tap em KeyboardEvent 1 s, freeze após 30 s). Licença: ver `NOTICE.md` (upstream sem licença declarada, credita @pixelbunny).
+- [ ] **3.4** Bateria L/R — depende de F1.1 (peripherals enviando reading ADC da VDDH). Bloqueado até haver hardware pra testar.
 - [ ] Teste de cores puras (RGB squares) para confirmar ordem MADCTL vs câmera
 
 ---
