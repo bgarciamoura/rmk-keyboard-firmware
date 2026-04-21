@@ -85,8 +85,9 @@ Objetivo: tela acende e imprime "Hello RMK". Reaproveitar sequências de init de
 - [x] Bug principal resolvido: CS deve ficar low durante cmd+data numa única transação (ver cerebrum)
 - [x] Integrar `embedded-graphics` para desenhar "Hello RMK" — validado 2026-04-20 em `dongle/src/bin/display_hello.rs`
 - [x] **MVP F3 validado em hardware** (commit `0104d31`, run `24699971413`): display "Hello RMK" + RMK completo + Vial, tudo coexistindo. `#[overwritten(chip_init)]` comprovado como caminho limpo.
-- [ ] Refatorar `Jd9853Display` de `central.rs` para módulo reutilizável (`dongle/src/drivers/jd9853.rs`) — hoje está duplicado com `display_hello.rs`
-- [ ] Task Embassy `display_task` assíncrona (render loop) via `#[register_processor(poll)]` — permite atualizar a tela em runtime (status BLE, layer, bateria)
+- [x] Refatorar `Jd9853Display` de `central.rs` para módulo reutilizável (`dongle/src/drivers/jd9853.rs`) — concluído 2026-04-20 commit `97c4b6f`
+- [x] Task Embassy paralela via `#[register_processor(poll)]` — validado 2026-04-20 commit `f9ba97c` run `24700880799`. `DisplayUi` struct com `PollingProcessor` desenha "tick: N" a cada 500 ms sem quebrar USB/BLE/Vial
+- [ ] Substituir contador fake por estado real: (a) BLE pareado/idle, (b) peripherals L/R online, (c) layer atual, (d) bateria L/R
 - [ ] Teste de cores puras (RGB squares) para confirmar ordem MADCTL vs câmera
 
 ---

@@ -48,6 +48,7 @@ use log::info;
 
 use rmk::event::{KeyboardEvent, LayerChangeEvent, PeripheralConnectedEvent};
 use rmk::macros::{processor, rmk_keyboard};
+use rmk_dongle::assets::bongo::{self, FRAME_H as BONGO_H, FRAME_W as BONGO_W};
 use rmk_dongle::drivers::jd9853::{INIT_SEQ, Jd9853Display, LCD_W};
 
 // ============================================================================
@@ -86,6 +87,20 @@ const LR_L_Y: i32 = 94;
 const LR_R_Y: i32 = 108;
 const LR_H: u32 = 10;
 
+// Bongo Cat — 64×64 sprite escalado 2× = 128×128. Centralizado em x
+// (172-128)/2 = 22, y=130 (respiro de ~12 px abaixo do status R).
+const BONGO_SCALE: u8 = 2;
+const BONGO_OUT_W: u16 = BONGO_W * BONGO_SCALE as u16;
+const BONGO_OUT_H: u16 = BONGO_H * BONGO_SCALE as u16;
+const BONGO_X: u16 = (LCD_W - BONGO_OUT_W) / 2;
+const BONGO_Y: u16 = 130;
+// Polls sem keypress antes de congelar o frame atual (economiza SPI).
+// 60 polls × 500 ms = 30 s.
+const BONGO_FREEZE_AFTER_POLLS: u32 = 60;
+// Quantos polls o frame de tap fica visível antes de voltar pra idle.
+// 2 polls × 500 ms = 1 s — bate com a sensação original do sketch.
+const BONGO_TAP_HOLD_POLLS: u8 = 2;
+
 const BG: Rgb565 = Rgb565::new(3, 6, 12);
 
 #[processor(
@@ -105,13 +120,37 @@ pub struct DisplayUi {
     left_online: bool,
     right_online: bool,
     bt_dirty: bool,
+    // ---- Bongo Cat state machine ----
+    // Frame atualmente desenhado na tela (ref estática pros bytes 1bpp).
+    bongo_current: &'static [u8; bongo::FRAME_BYTES],
+    // Índice do frame idle atual (0..8). Só usado no modo idle.
+    bongo_idle_idx: u8,
+    // Quantos polls se passaram desde a última keypress. Pára de animar
+    // (congela) quando passa de BONGO_FREEZE_AFTER_POLLS.
+    bongo_quiet_polls: u32,
+    // Polls restantes do tap atual (> 0 = em tap; 0 = idle).
+    bongo_tap_remaining: u8,
+    // Alterna entre TAP_LEFT e TAP_RIGHT a cada keypress. Sem fonte real
+    // de "qual metade", alternância visual é mais orgânica.
+    bongo_flip: bool,
+    bongo_dirty: bool,
 }
 
 impl DisplayUi {
-    // Supertrait Processor exige handler pra cada evento assinado. KeyboardEvent
-    // aqui é no-op — usado lá atrás só pra ter pelo menos um evento, porque
-    // PollingProcessor exige ao menos um subscriber.
-    async fn on_keyboard_event(&mut self, _event: KeyboardEvent) {}
+    // Cada keypress dispara o Bongo Cat tap. Alterna esquerda/direita pra
+    // sensação orgânica (sem fonte real de "qual metade" — matrix/col do
+    // evento não é confiável até F1.1, quando peripherals existirem).
+    async fn on_keyboard_event(&mut self, _event: KeyboardEvent) {
+        self.bongo_flip = !self.bongo_flip;
+        self.bongo_current = if self.bongo_flip {
+            bongo::TAP_LEFT
+        } else {
+            bongo::TAP_RIGHT
+        };
+        self.bongo_tap_remaining = BONGO_TAP_HOLD_POLLS;
+        self.bongo_quiet_polls = 0;
+        self.bongo_dirty = true;
+    }
 
     // Chamado a cada mudança de layer efetiva (MO/TG/TT/OSL/LT/TO/DF).
     // Evento já traz a topmost-active layer como u8 — não precisamos
@@ -216,6 +255,46 @@ impl DisplayUi {
                 .draw(&mut self.display);
             let _ = Text::with_baseline(r_text, Point::new(6, LR_R_Y), r_style, Baseline::Top)
                 .draw(&mut self.display);
+        }
+
+        // ---- Bongo Cat state machine ----
+        if self.bongo_tap_remaining > 0 {
+            self.bongo_tap_remaining -= 1;
+            if self.bongo_tap_remaining == 0 {
+                // Tap acabou → volta pra idle no frame 0.
+                self.bongo_idle_idx = 0;
+                self.bongo_current = bongo::IDLE_FRAMES[0];
+                self.bongo_quiet_polls = 0;
+                self.bongo_dirty = true;
+            }
+            // Enquanto tap_remaining > 0, bongo_current já foi setado pelo
+            // handler — dirty também; poll só segura o frame.
+        } else if self.bongo_quiet_polls < BONGO_FREEZE_AFTER_POLLS {
+            // Idle animando — avança um frame por poll (9 frames × 500 ms
+            // ≈ 4.5 s por ciclo).
+            self.bongo_idle_idx = (self.bongo_idle_idx + 1) % bongo::IDLE_FRAMES.len() as u8;
+            self.bongo_current = bongo::IDLE_FRAMES[self.bongo_idle_idx as usize];
+            self.bongo_dirty = true;
+            self.bongo_quiet_polls = self.bongo_quiet_polls.saturating_add(1);
+        } else {
+            // Congelado — apenas incrementa o contador pra não overflowar.
+            self.bongo_quiet_polls = self.bongo_quiet_polls.saturating_add(1);
+        }
+
+        if self.bongo_dirty {
+            self.bongo_dirty = false;
+            // fg = creme quente, bg = cor de fundo do dashboard (match)
+            let fg = Rgb565::new(28, 56, 22);
+            self.display.blit_bitmap_1bpp(
+                BONGO_X,
+                BONGO_Y,
+                BONGO_W,
+                BONGO_H,
+                BONGO_SCALE,
+                self.bongo_current,
+                fg,
+                BG,
+            );
         }
     }
 }
@@ -342,6 +421,14 @@ mod keyboard {
             left_online: false,
             right_online: false,
             bt_dirty: true,
+            bongo_current: bongo::IDLE_FRAMES[0],
+            bongo_idle_idx: 0,
+            bongo_quiet_polls: 0,
+            bongo_tap_remaining: 0,
+            bongo_flip: false,
+            // Primeiro poll pinta FRAME_00 na área do gato (senão fica
+            // preto até a primeira mudança).
+            bongo_dirty: true,
         }
     }
 }

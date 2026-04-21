@@ -6,4 +6,5 @@
 
 #![no_std]
 
+pub mod assets;
 pub mod drivers;

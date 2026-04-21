@@ -170,6 +170,73 @@ impl<'a, S: SpiBus> Jd9853Display<'a, S> {
     }
 }
 
+    /// Desenha um bitmap 1 bpp (layout Adafruit_GFX: row-major, 8 pixels por
+    /// byte, MSB = pixel mais à esquerda) em Rgb565. Suporta escala inteira
+    /// N× (útil pra aumentar sprites pequenos sem blur). Bit=1 usa `fg`,
+    /// bit=0 usa `bg`.
+    ///
+    /// Buffer de linha limitado a `MAX_BLIT_LINE_BYTES` (512) — serve pra
+    /// src_w × scale ≤ 128 (o bastante pra 64×64 em 2×).
+    pub fn blit_bitmap_1bpp(
+        &mut self,
+        x: u16,
+        y: u16,
+        src_w: u16,
+        src_h: u16,
+        scale: u8,
+        bitmap: &[u8],
+        fg: Rgb565,
+        bg: Rgb565,
+    ) {
+        if scale == 0 || src_w == 0 || src_h == 0 {
+            return;
+        }
+        let out_w = src_w * scale as u16;
+        let out_h = src_h * scale as u16;
+        self.set_window(x, y, x + out_w - 1, y + out_h - 1);
+
+        let fg_raw = fg.into_storage();
+        let bg_raw = bg.into_storage();
+        let fg_hi = (fg_raw >> 8) as u8;
+        let fg_lo = fg_raw as u8;
+        let bg_hi = (bg_raw >> 8) as u8;
+        let bg_lo = bg_raw as u8;
+
+        const MAX_BLIT_LINE_BYTES: usize = 512;
+        let mut line_buf = [0u8; MAX_BLIT_LINE_BYTES];
+        let line_bytes = (out_w as usize) * 2;
+        debug_assert!(line_bytes <= MAX_BLIT_LINE_BYTES);
+
+        let bytes_per_row = ((src_w as usize) + 7) / 8;
+
+        self.start_ramwr();
+        for row in 0..src_h as usize {
+            let row_start = row * bytes_per_row;
+
+            // Monta uma linha escalada em line_buf.
+            let mut out_idx = 0;
+            for bit_x in 0..src_w as usize {
+                let byte = bitmap[row_start + (bit_x / 8)];
+                let bit = 7 - (bit_x % 8);
+                let on = (byte >> bit) & 1 != 0;
+                let (hi, lo) = if on { (fg_hi, fg_lo) } else { (bg_hi, bg_lo) };
+                for _ in 0..scale as usize {
+                    line_buf[out_idx] = hi;
+                    line_buf[out_idx + 1] = lo;
+                    out_idx += 2;
+                }
+            }
+
+            // Envia a mesma linha `scale` vezes (replica vertical).
+            for _ in 0..scale as usize {
+                let _ = self.spi.write(&line_buf[..line_bytes]);
+                let _ = self.spi.flush();
+            }
+        }
+        self.end_ramwr();
+    }
+}
+
 impl<'a, S: SpiBus> OriginDimensions for Jd9853Display<'a, S> {
     fn size(&self) -> Size {
         Size::new(LCD_W as u32, LCD_H as u32)
