@@ -5,14 +5,16 @@
 #           + flex PCB TBK Mini (Bastard Keyboards, CERN-OHL-W v2)
 # USB: desligado. Scan de matriz + envio BLE para a central (dongle ESP32-S3).
 #
-# Pinout canônico TBK Mini → Elite-C Holder 2.1 → SuperMini nRF52840:
-#   R1 = Pro Micro A0 (F7) = P0.02
+# Pinout TBK Mini → Elite-C Holder 2.1 → **SuperMini nRF52840**:
+# ATENÇÃO: a SuperMini tem mapeamento Pro Micro ↔ nRF **diferente** do
+# Nice!Nano nos pads A0-A3 e D10. Conferido no silkscreen da placa.
+#   R1 = Pro Micro A0 (F7) = P1.15   (Nice!Nano seria P0.02)
 #   R2 = Pro Micro "5" (C6) = P0.24
 #   R3 = Pro Micro "4" (D4) = P0.22
 #   R4 = Pro Micro "9" (B5) = P1.06
-#   C1 = Pro Micro A1 (F6) = P0.29
-#   C2 = Pro Micro A2 (F5) = P0.31
-#   C3 = Pro Micro "10" (B6) = P1.11
+#   C1 = Pro Micro A1 (F6) = P0.02   (Nice!Nano seria P0.29)
+#   C2 = Pro Micro A2 (F5) = P0.29   (Nice!Nano seria P0.31)
+#   C3 = Pro Micro "10" (B6) = P0.09 (Nice!Nano seria P1.11; P0.09 é NFC, OK via feature)
 #   C4 = Pro Micro "6" (D7) = P1.00
 #   C5 = Pro Micro "7" (E6) = P0.11
 #   C6 = Pro Micro "8" (B4) = P1.04
@@ -123,10 +125,11 @@ matrix_type = "normal"
 # read col. `row_pins` e `col_pins` mantêm a semântica de "pinos ligados
 # às linhas/colunas da matriz" — não precisa trocá-los.
 row2col = true
-# TBK Mini R1..R4 em ordem de linha (top → thumb).
-row_pins = ["P0_02", "P0_24", "P0_22", "P1_06"]
-# TBK Mini C1..C6 em ordem (outside → inside).
-col_pins = ["P0_29", "P0_31", "P1_11", "P1_00", "P0_11", "P1_04"]
+# TBK Mini R1..R4 em ordem de linha (top → thumb), pinos SuperMini.
+row_pins = ["P1_15", "P0_24", "P0_22", "P1_06"]
+# TBK Mini C1..C6 em ordem (outside → inside), pinos SuperMini.
+# P0.09 é pino NFC; template nRF52840 já tem `nfc-pins-as-gpio` no embassy-nrf.
+col_pins = ["P0_02", "P0_29", "P0_09", "P1_00", "P0_11", "P1_04"]
 
 # ----------------------------------------------------------------------------
 # Peripheral 1 = metade direita. Pinos dummy pra satisfazer o schema; este
