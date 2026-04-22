@@ -6,25 +6,61 @@ on:
       - "**"
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - role: dongle
-            toml: dongle/keyboard.toml
-            vial: dongle/vial.json
-          # Metade esquerda — habilitada 2026-04-21 (PCB soldada, Elite-C Holder
-          # 2.1 + flex TBK Mini + SuperMini nRF52840, pinout canônico Bastard).
-          - role: left
-            toml: left/keyboard.toml
-            vial: dongle/vial.json
-          # Metade direita — ainda em espera até o hardware ser montado.
-          # - role: right
-          #   toml: right/keyboard.toml
-          #   vial: dongle/vial.json
-    name: build-${{ matrix.role }}
+  # -------------------------------------------------------------------------
+  # Dongle (ESP32-S3 central): usa o workflow upstream `user_build.yml`,
+  # que compila qualquer TOML padrão (central + peripherals implícitos).
+  # -------------------------------------------------------------------------
+  build-dongle:
+    name: build-dongle
     uses: haobogu/rmk/.github/workflows/user_build.yml@main
     with:
-      keyboard_toml_path: ${{ matrix.toml }}
-      vial_json_path: ${{ matrix.vial }}
+      keyboard_toml_path: dongle/keyboard.toml
+      vial_json_path: dongle/vial.json
+
+  # -------------------------------------------------------------------------
+  # Left peripheral (nRF52840): o template rmkit gera DOIS bins
+  # (`central` + `peripheral`) no mesmo projeto. Como nosso central roda em
+  # outro chip (ESP32-S3), o bin `central` do template nRF quebra (rows=0,
+  # usb_enable=false batem mal com o macro `#[rmk_central]`). Workaround:
+  # rodar `cargo make uf2-peripheral --release` que só compila o bin
+  # peripheral e ignora o central.
+  # -------------------------------------------------------------------------
+  build-left:
+    name: build-left
+    runs-on: ubuntu-latest
+    env:
+      LIBSSL: "libssl1.1_1.1.1f-1ubuntu2_amd64.deb"
+      RUST_MIN_STACK: "67108864"
+    steps:
+      - uses: cargo-bins/cargo-binstall@main
+      - uses: actions/checkout@v6
+      - uses: actions/cache@v5
+        with:
+          path: |
+            libssl*.deb
+          key: ${{ runner.os }}-libssl
+      - name: Install libssl
+        run: |
+          [ ! -f $LIBSSL ] && wget http://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/$LIBSSL
+          sudo dpkg -i $LIBSSL
+      - name: Install rmkit, flip-link and cargo-make
+        run: cargo binstall cargo-make rmkit flip-link -y
+      - name: Create firmware project (scaffold from left/keyboard.toml)
+        run: rmkit create --keyboard-toml-path left/keyboard.toml --vial-json-path dongle/vial.json --version main --target-dir rmk-left
+      - name: Build peripheral.uf2 (isolated — não toca o bin central)
+        working-directory: ./rmk-left
+        run: cargo make uf2-peripheral --release
+      - name: Upload peripheral.uf2
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware_left_uf2
+          path: rmk-left/*-peripheral.uf2
+
+  # -------------------------------------------------------------------------
+  # Right peripheral (nRF52840 + trackball PMW3360): desabilitado até o
+  # hardware ser montado. Mesmo padrão do build-left quando reativar.
+  # -------------------------------------------------------------------------
+  # build-right:
+  #   name: build-right
+  #   runs-on: ubuntu-latest
+  #   ... (espelhar build-left com right/keyboard.toml)
