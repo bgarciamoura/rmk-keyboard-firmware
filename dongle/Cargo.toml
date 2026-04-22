@@ -59,6 +59,10 @@ rmk = { git = "https://github.com/HaoboGu/rmk", branch = "main", default-feature
     "storage",
     "vial",
 ] }
+# rmk-types reexporta BatteryStatus, ChargeState etc. usados em eventos.
+# Referenciado diretamente pelo DisplayUi pra pattern match em
+# PeripheralBatteryEvent.state.0.
+rmk-types = { git = "https://github.com/HaoboGu/rmk", branch = "main" }
 
 # ESP-rs bare-metal stack — versões alinhadas com rmk/examples/use_rust/esp32s3_ble
 embassy-executor = { version = "0.10" }

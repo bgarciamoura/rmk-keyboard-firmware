@@ -46,8 +46,11 @@ use heapless::String;
 
 use log::info;
 
-use rmk::event::{KeyboardEvent, LayerChangeEvent, PeripheralConnectedEvent};
+use rmk::event::{
+    KeyboardEvent, LayerChangeEvent, PeripheralBatteryEvent, PeripheralConnectedEvent,
+};
 use rmk::macros::{processor, rmk_keyboard};
+use rmk_types::battery::BatteryStatus;
 use rmk_dongle::assets::bongo::{self, FRAME_H as BONGO_H, FRAME_W as BONGO_W};
 use rmk_dongle::drivers::jd9853::{INIT_SEQ, Jd9853Display, LCD_W};
 
@@ -104,7 +107,12 @@ const BONGO_TAP_HOLD_POLLS: u8 = 2;
 const BG: Rgb565 = Rgb565::new(3, 6, 12);
 
 #[processor(
-    subscribe = [KeyboardEvent, LayerChangeEvent, PeripheralConnectedEvent],
+    subscribe = [
+        KeyboardEvent,
+        LayerChangeEvent,
+        PeripheralConnectedEvent,
+        PeripheralBatteryEvent,
+    ],
     poll_interval = 500
 )]
 pub struct DisplayUi {
@@ -119,6 +127,12 @@ pub struct DisplayUi {
     // bt_dirty=true inicial força primeiro poll a sobrescrever placeholders.
     left_online: bool,
     right_online: bool,
+    // Bateria 0-100% por peripheral. None = ainda não recebemos update
+    // (primeiro PeripheralBatteryEvent chega ~2s+ após conexão BLE).
+    // Compartilha `bt_dirty` com o status online/offline — uma linha só no
+    // dashboard combina ambos: "L: online 85%" / "L: online --%" / "L: offline".
+    left_battery: Option<u8>,
+    right_battery: Option<u8>,
     bt_dirty: bool,
     // ---- Bongo Cat state machine ----
     // Frame atualmente desenhado na tela (ref estática pros bytes 1bpp).
@@ -185,6 +199,29 @@ impl DisplayUi {
         }
     }
 
+    // PeripheralBatteryEvent é emitido pelo PeripheralManager (split/driver.rs)
+    // quando o peripheral envia SplitMessage::BatteryStatus. O BatteryProcessor
+    // no peripheral só publica em mudança real de percentual — sample ADC roda
+    // a cada ~5s no nRF52840 via VDDH SAADC.
+    async fn on_peripheral_battery_event(&mut self, event: PeripheralBatteryEvent) {
+        let pct = match event.state.0 {
+            BatteryStatus::Available {
+                level: Some(p), ..
+            } => Some(p),
+            // Available sem level, ou Unavailable → mostra "--"
+            _ => None,
+        };
+        let slot = match event.id {
+            0 => &mut self.left_battery,
+            1 => &mut self.right_battery,
+            _ => return,
+        };
+        if *slot != pct {
+            *slot = pct;
+            self.bt_dirty = true;
+        }
+    }
+
     async fn poll(&mut self) {
         // ---- Uptime (redesenha sempre) ----
         let total_secs = Instant::now().as_secs();
@@ -240,21 +277,50 @@ impl DisplayUi {
                 .into_styled(PrimitiveStyleBuilder::new().fill_color(BG).build())
                 .draw(&mut self.display);
 
-            let (l_text, l_style) = if self.left_online {
-                ("L:    online", style_on)
+            // Formato: "L:  online 85%" / "L:  online --%" / "L:  offline"
+            let mut l_buf: String<24> = String::new();
+            let mut r_buf: String<24> = String::new();
+            if self.left_online {
+                match self.left_battery {
+                    Some(p) => {
+                        let _ = write!(l_buf, "L:  online {}%", p);
+                    }
+                    None => {
+                        let _ = write!(l_buf, "L:  online --%");
+                    }
+                }
             } else {
-                ("L:    offline", style_off)
-            };
-            let (r_text, r_style) = if self.right_online {
-                ("R:    online", style_on)
+                let _ = write!(l_buf, "L:  offline");
+            }
+            if self.right_online {
+                match self.right_battery {
+                    Some(p) => {
+                        let _ = write!(r_buf, "R:  online {}%", p);
+                    }
+                    None => {
+                        let _ = write!(r_buf, "R:  online --%");
+                    }
+                }
             } else {
-                ("R:    offline", style_off)
-            };
+                let _ = write!(r_buf, "R:  offline");
+            }
+            let l_style = if self.left_online { style_on } else { style_off };
+            let r_style = if self.right_online { style_on } else { style_off };
 
-            let _ = Text::with_baseline(l_text, Point::new(6, LR_L_Y), l_style, Baseline::Top)
-                .draw(&mut self.display);
-            let _ = Text::with_baseline(r_text, Point::new(6, LR_R_Y), r_style, Baseline::Top)
-                .draw(&mut self.display);
+            let _ = Text::with_baseline(
+                l_buf.as_str(),
+                Point::new(6, LR_L_Y),
+                l_style,
+                Baseline::Top,
+            )
+            .draw(&mut self.display);
+            let _ = Text::with_baseline(
+                r_buf.as_str(),
+                Point::new(6, LR_R_Y),
+                r_style,
+                Baseline::Top,
+            )
+            .draw(&mut self.display);
         }
 
         // ---- Bongo Cat state machine ----
@@ -420,6 +486,8 @@ mod keyboard {
             layer_dirty: true,
             left_online: false,
             right_online: false,
+            left_battery: None,
+            right_battery: None,
             bt_dirty: true,
             bongo_current: bongo::IDLE_FRAMES[0],
             bongo_idle_idx: 0,
