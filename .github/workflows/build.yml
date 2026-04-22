@@ -14,12 +14,12 @@ jobs:
           - role: dongle
             toml: dongle/keyboard.toml
             vial: dongle/vial.json
-          # Jobs das metades desabilitados até o wiring físico das nRF52840
-          # estar definido (pinos row/col reais). Remover comentário quando P0
-          # do TODO.md estiver resolvido.
-          # - role: left
-          #   toml: left/keyboard.toml
-          #   vial: dongle/vial.json
+          # Metade esquerda — habilitada 2026-04-21 (PCB soldada, Elite-C Holder
+          # 2.1 + flex TBK Mini + SuperMini nRF52840, pinout canônico Bastard).
+          - role: left
+            toml: left/keyboard.toml
+            vial: dongle/vial.json
+          # Metade direita — ainda em espera até o hardware ser montado.
           # - role: right
           #   toml: right/keyboard.toml
           #   vial: dongle/vial.json

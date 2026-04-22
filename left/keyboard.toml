@@ -1,15 +1,26 @@
 # Documentation: https://rmk.rs/docs/configuration.html
 #
 # Role: PERIPHERAL[0] / METADE ESQUERDA
-# Hardware: nRF52840 (alimentada por bateria)
-# USB: desligado. Scan de matriz + envio BLE para a central (dongle).
+# Hardware: SuperMini nRF52840 (Pro Micro footprint) + Elite-C Holder 2.1
+#           + flex PCB TBK Mini (Bastard Keyboards, CERN-OHL-W v2)
+# USB: desligado. Scan de matriz + envio BLE para a central (dongle ESP32-S3).
 #
-# TODO (usuário): preencher PIN_XX com o wiring físico real da sua PCB.
-# Charybdis típico usa matriz col2row; manter default, ou adicionar
-# `row2col = true` em [split.peripheral.matrix] se sua PCB usar o oposto.
+# Pinout canônico TBK Mini → Elite-C Holder 2.1 → SuperMini nRF52840:
+#   R1 = Pro Micro A0 (F7) = P0.02
+#   R2 = Pro Micro "5" (C6) = P0.24
+#   R3 = Pro Micro "4" (D4) = P0.22
+#   R4 = Pro Micro "9" (B5) = P1.06
+#   C1 = Pro Micro A1 (F6) = P0.29
+#   C2 = Pro Micro A2 (F5) = P0.31
+#   C3 = Pro Micro "10" (B6) = P1.11
+#   C4 = Pro Micro "6" (D7) = P1.00
+#   C5 = Pro Micro "7" (E6) = P0.11
+#   C6 = Pro Micro "8" (B4) = P1.04
+# Fonte: bastardkb-qmk `keyboards/bastardkb/tbkmini/v2/elitec/config.h`
+# Diodos: ROW2COL (banda preta aponta pra coluna).
 
 [keyboard]
-# Para split peripherals, o `[[bin]]` auto-gerado é `peripheral`.
+# Split peripherals: o [[bin]] auto-gerado é `peripheral`.
 name = "peripheral"
 product_name = "Charybdis Left"
 vendor_id = 0x4c4b
@@ -18,9 +29,8 @@ manufacturer = "RMK"
 chip = "nrf52840"
 usb_enable = false
 
-# O bloco [layout] abaixo é idêntico ao do dongle — mantém os peripherals
-# compiláveis contra o mesmo schema. A central é quem realmente interpreta
-# o keymap; aqui serve de fallback.
+# Layout idêntico ao do dongle — mantém os três TOMLs compilando contra o
+# mesmo schema. A central é quem interpreta o keymap em runtime.
 [layout]
 rows = 4
 cols = 12
@@ -72,6 +82,7 @@ keymap = [
 
 [ble]
 enabled = true
+# Bateria 3.7V LiPo via VDDH (SAADC nRF). Divisor calibrado pro full-swing.
 battery_adc_pin = "vddh"
 adc_divider_measured = 2000
 adc_divider_total = 2806
@@ -80,20 +91,24 @@ adc_divider_total = 2806
 connection = "ble"
 
 [split.central]
-rows = 1
-cols = 1
+# Central não tem matriz local (é o dongle ESP32-S3, rows/cols = 0).
+rows = 0
+cols = 0
 row_offset = 0
 col_offset = 0
 ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x01]
 
-# Placeholder exigido por rmk-config 0.6.0 em SplitBoardConfig. Os pinos são
-# genéricos do ESP32-S3 (nós somos a metade esquerda — nRF52840; este bloco
-# descreve a central que é o dongle, então pinos do dongle aqui).
+# Placeholder exigido por rmk-config 0.6.0. Pinos dummy no formato nRF52840
+# (compilação acontece com chip = nrf52840). Nunca usados — o peripheral
+# não varre a matriz da central; só precisa do BLE addr dela.
 [split.central.matrix]
 matrix_type = "normal"
-row_pins = ["GPIO1"]
-col_pins = ["GPIO2"]
+row_pins = ["P0_28"]
+col_pins = ["P0_03"]
 
+# ----------------------------------------------------------------------------
+# Peripheral 0 = ESTA metade (LEFT). Pinos REAIS — canônicos do TBK Mini.
+# ----------------------------------------------------------------------------
 [[split.peripheral]]
 rows = 4
 cols = 6
@@ -103,6 +118,24 @@ ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x02]
 
 [split.peripheral.matrix]
 matrix_type = "normal"
-# TODO: substituir pelos pinos reais da PCB esquerda
-row_pins = ["P0_XX", "P0_XX", "P0_XX", "P0_XX"]
-col_pins = ["P0_XX", "P0_XX", "P0_XX", "P0_XX", "P0_XX", "P0_XX"]
+# TBK Mini R1..R4 em ordem de linha (top → thumb). TODO: confirmar orientação
+# quando flashar — se as rows estiverem invertidas, inverter a ordem aqui.
+row_pins = ["P0_02", "P0_24", "P0_22", "P1_06"]
+# TBK Mini C1..C6 em ordem (outside → inside). TODO: confirmar ordem no flash.
+col_pins = ["P0_29", "P0_31", "P1_11", "P1_00", "P0_11", "P1_04"]
+
+# ----------------------------------------------------------------------------
+# Peripheral 1 = metade direita. Pinos dummy pra satisfazer o schema; este
+# firmware (left) não usa a matriz direita.
+# ----------------------------------------------------------------------------
+[[split.peripheral]]
+rows = 4
+cols = 6
+row_offset = 0
+col_offset = 6
+ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x03]
+
+[split.peripheral.matrix]
+matrix_type = "normal"
+row_pins = ["P0_04", "P0_05", "P0_06", "P0_07"]
+col_pins = ["P0_08", "P0_12", "P0_14", "P0_15", "P0_16", "P0_17"]
