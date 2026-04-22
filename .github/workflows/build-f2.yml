@@ -38,6 +38,38 @@ jobs:
       - name: Install espflash
         run: cargo install espflash --locked
 
+      - name: Vendor + patch RMK (max_latency 30 -> 0 no split BLE central)
+        # RMK main hardcoda `max_latency: 30` em `rmk/src/split/ble/central.rs`
+        # → peripheral pode pular até 30 connection events (7.5ms cada) = 225ms
+        # de delay worst-case por tecla. Sintoma: tap-hold imprevisível,
+        # digitação travando, "peripheral online mas não digita" em bateria.
+        # Sem config TOML exposta — fix só via source patch.
+        # Aplicado somente no CI, dongle/Cargo.toml local fica intacto.
+        working-directory: .
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/HaoboGu/rmk.git /tmp/rmk-vendored
+          python3 - <<'PYEOF'
+          from pathlib import Path
+          p = Path("/tmp/rmk-vendored/rmk/src/split/ble/central.rs")
+          src = p.read_text()
+          new = src.replace("max_latency: 30", "max_latency: 0")
+          assert new != src, "max_latency: 30 não encontrado — patch desatualizado?"
+          p.write_text(new)
+          print("OK — max_latency: 30 → 0 em central.rs")
+          PYEOF
+          cat >> dongle/Cargo.toml <<'EOF'
+
+          # Patch injetado pelo CI (build-f2.yml) — NÃO commitar manualmente.
+          # Força max_latency: 0 no split BLE central, eliminando delay de
+          # até 225ms em keypresses de peripherals via BLE.
+          [patch."https://github.com/HaoboGu/rmk"]
+          rmk        = { path = "/tmp/rmk-vendored/rmk" }
+          rmk-config = { path = "/tmp/rmk-vendored/rmk-config" }
+          rmk-macro  = { path = "/tmp/rmk-vendored/rmk-macro" }
+          rmk-types  = { path = "/tmp/rmk-vendored/rmk-types" }
+          EOF
+
       - name: Build firmware (release)
         run: cargo build --release
 
