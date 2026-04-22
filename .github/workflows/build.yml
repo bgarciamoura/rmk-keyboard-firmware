@@ -47,7 +47,29 @@ jobs:
         run: cargo binstall cargo-make rmkit flip-link -y
       - name: Create firmware project (scaffold from left/keyboard.toml)
         run: rmkit create --keyboard-toml-path left/keyboard.toml --vial-json-path dongle/vial.json --version main --target-dir rmk-left
-      - name: Build peripheral.uf2 (isolated — não toca o bin central)
+      - name: Remove central bin (nosso central é ESP32-S3, não nRF)
+        # O template nrf52840_split gera sempre dois bins (central + peripheral).
+        # Como rodamos central em outro chip, removemos o bin central antes do
+        # build — caso contrário cargo build --release ainda o compila e quebra
+        # em macro expansion (`#[rmk_central]` vs config sem USB/sem matrix).
+        run: |
+          python3 - <<'EOF'
+          import re
+          from pathlib import Path
+          path = Path("rmk-left/Cargo.toml")
+          content = path.read_text()
+          # Remove o bloco [[bin]] + name + path do central
+          new = re.sub(
+              r'\[\[bin\]\]\s*\n\s*name\s*=\s*"central"\s*\n\s*path\s*=\s*"src/central\.rs"\s*\n',
+              '',
+              content,
+          )
+          assert new != content, "Padrão do bin central não encontrado no Cargo.toml"
+          path.write_text(new)
+          Path("rmk-left/src/central.rs").unlink(missing_ok=True)
+          print("OK — bin central removido")
+          EOF
+      - name: Build peripheral.uf2 (isolated — só o bin peripheral)
         working-directory: ./rmk-left
         run: cargo make uf2-peripheral --release
       - name: Upload peripheral.uf2
