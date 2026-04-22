@@ -38,13 +38,15 @@ jobs:
       - name: Install espflash
         run: cargo install espflash --locked
 
-      - name: Vendor + patch RMK (max_latency 30 -> 0 no split BLE central)
-        # RMK main hardcoda `max_latency: 30` em `rmk/src/split/ble/central.rs`
-        # → peripheral pode pular até 30 connection events (7.5ms cada) = 225ms
-        # de delay worst-case por tecla. Sintoma: tap-hold imprevisível,
-        # digitação travando, "peripheral online mas não digita" em bateria.
+      - name: Vendor + patch RMK (conn params balanceados no split BLE)
+        # RMK main hardcoda (central.rs::defaul_central_conn_param):
+        #   max_latency: 30           → 225ms delay worst-case (agressivo demais)
+        #   supervision_timeout: 5s   → curto demais com 7.5ms interval
+        # Patch: max_latency: 4 (30ms delay, tolera 4 events skipped),
+        #        supervision_timeout: 10s (tolerante a picos de interferência).
+        # max_latency: 0 foi testado mas causava disconnect/reconnect loop
+        # (peripheral nRF não conseguia sustentar TX em todo event de 7.5ms).
         # Sem config TOML exposta — fix só via source patch.
-        # Aplicado somente no CI, dongle/Cargo.toml local fica intacto.
         working-directory: .
         run: |
           set -euxo pipefail
@@ -53,10 +55,13 @@ jobs:
           from pathlib import Path
           p = Path("/tmp/rmk-vendored/rmk/src/split/ble/central.rs")
           src = p.read_text()
-          new = src.replace("max_latency: 30", "max_latency: 0")
+          new = src.replace("max_latency: 30", "max_latency: 4")
           assert new != src, "max_latency: 30 não encontrado — patch desatualizado?"
-          p.write_text(new)
-          print("OK — max_latency: 30 → 0 em central.rs")
+          new2 = new.replace("supervision_timeout: Duration::from_secs(5)",
+                             "supervision_timeout: Duration::from_secs(10)")
+          assert new2 != new, "supervision_timeout: 5s não encontrado"
+          p.write_text(new2)
+          print("OK — max_latency: 30→4, supervision_timeout: 5s→10s")
           PYEOF
           cat >> dongle/Cargo.toml <<'EOF'
 
