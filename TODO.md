@@ -131,7 +131,8 @@ Metade esquerda validada em hardware 2026-04-22 (commit `a3ca529`, run `24780338
 - [x] Re-habilitar `build-left` em `.github/workflows/build.yml` — job custom com `cargo make uf2-peripheral`, commit `6d4945a`
 - [x] Flashar UF2 no SuperMini via DFU (double-tap RST↔GND)
 - [x] Validar pareamento BLE: left aparece como `L: online` no dashboard do dongle
-- [x] Validar matriz: todas as 21 teclas (3×6 + 3 thumbs) funcionam, Bongo Cat reage
+- [x] Validar matriz: 18 teclas alpha (3×6) funcionando, Bongo Cat reage a cada keypress
+- [ ] **Soldar os 3 thumbs esquerdos** (row 3, cols 1 / 3 / 4 = MouseBtn1 / LT(2,Backspace) / LT(1,Space)) e validar — ainda não montados fisicamente; pinos/matrix já declarados no keymap
 - [ ] **Mapear pinos da matriz direita** em `right/keyboard.toml` — mesma TBK Mini + Elite-C + SuperMini, mas em orientação RIGHT (flex reversível)
 - [ ] **Mapear pinos SPI da trackball** PMW3360DM em `right/keyboard.toml` (`sck`, `mosi`, `miso`, `cs`, `cpi`) — vai em pads extras do Elite-C Holder
 - [ ] Habilitar `build-right` em `.github/workflows/build.yml` (espelhar job custom do build-left)
