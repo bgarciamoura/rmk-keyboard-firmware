@@ -47,27 +47,40 @@ jobs:
         run: cargo binstall cargo-make rmkit flip-link -y
       - name: Create firmware project (scaffold from left/keyboard.toml)
         run: rmkit create --keyboard-toml-path left/keyboard.toml --vial-json-path dongle/vial.json --version main --target-dir rmk-left
-      - name: Remove central bin (nosso central é ESP32-S3, não nRF)
-        # O template nrf52840_split gera sempre dois bins (central + peripheral).
-        # Como rodamos central em outro chip, removemos o bin central antes do
-        # build — caso contrário cargo build --release ainda o compila e quebra
-        # em macro expansion (`#[rmk_central]` vs config sem USB/sem matrix).
+      - name: Patch Cargo.toml (remove bin central + desabilita async_matrix)
+        # Duas edições no Cargo.toml gerado pelo rmkit:
+        # 1. Remove o bloco [[bin]] do central (nosso central é ESP32-S3, não
+        #    nRF). Sem isso, `cargo build --release` tenta compilar
+        #    `#[rmk_central]` com config de peripheral e quebra.
+        # 2. Remove a feature `async_matrix` — essa feature usa GPIOTE
+        #    interrupts pra acordar do deep sleep no keypress, mas com
+        #    ROW2COL a direção do edge fica errada e o wake-up não
+        #    dispara. Sintoma: peripheral dorme em segundos, aparece
+        #    "connected" na central mas nenhuma tecla registra; só RST
+        #    resolve. Sem a feature, matrix faz polling contínuo — mais
+        #    consumo de bateria (~5mA vs ~1mA), mas 100% responsivo.
         run: |
           python3 - <<'EOF'
           import re
           from pathlib import Path
           path = Path("rmk-left/Cargo.toml")
           content = path.read_text()
-          # Remove o bloco [[bin]] + name + path do central
+
+          # Fix 1: Remove [[bin]] central
           new = re.sub(
               r'\[\[bin\]\]\s*\n\s*name\s*=\s*"central"\s*\n\s*path\s*=\s*"src/central\.rs"\s*\n',
               '',
               content,
           )
           assert new != content, "Padrão do bin central não encontrado no Cargo.toml"
-          path.write_text(new)
+
+          # Fix 2: Remove feature async_matrix da lista de features do rmk
+          new2 = re.sub(r'\n\s*"async_matrix",?\s*', '\n', new)
+          assert new2 != new, "Feature async_matrix não encontrada no Cargo.toml"
+
+          path.write_text(new2)
           Path("rmk-left/src/central.rs").unlink(missing_ok=True)
-          print("OK — bin central removido")
+          print("OK — bin central removido + async_matrix desabilitado")
           EOF
       - name: Build peripheral.uf2 (isolated — só o bin peripheral)
         working-directory: ./rmk-left
