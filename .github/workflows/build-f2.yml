@@ -38,51 +38,63 @@ jobs:
       - name: Install espflash
         run: cargo install espflash --locked
 
-      - name: Vendor + patch RMK (conn params estáveis pro split BLE)
-        # RMK main hardcoda defaults agressivos que quebram peripheral BLE
-        # em configurações reais:
-        #   min/max interval = 7.5ms (frágil com interferência 2.4GHz)
-        #   max_latency = 30         (225ms delay worst-case)
-        #   supervision_timeout = 5s (peripheral em deep sleep não manda
-        #                             keepalive suficiente → link drop)
+      - name: Vendor + patch RMK (latency=0 em todos os presets + queue GATT 8)
+        # Três correções no RMK upstream pra estabilidade do link split BLE
+        # (sintomas anteriores: ~2s de latência inicial, teclas travadas,
+        # drops intermitentes).
         #
-        # Patch aplicado:
-        #   min/max interval = 15ms   (+60ms tolerância no rádio)
-        #   max_latency = 4           (60ms delay worst-case, imperceptível)
-        #   supervision_timeout = 30s (peripheral pode dormir 30s sem drop)
+        # 1) max_latency: N → 0 em TODAS as ocorrências de central.rs
+        #    (regex cobre os 3 presets: default, sleep-connected-to-host,
+        #    sleep-advertising). ZMK best practice: slave_latency = 0 no
+        #    link split — peripheral RMK não tem queue persistente e precisa
+        #    enviar key events no próximo conn event. Latency > 0 força
+        #    delay e o central interpreta como idle profundo, disparando
+        #    ~2s de reconexão ao voltar atividade.
         #
-        # Histórico de tentativas (não repetir):
-        # - max_latency=0: peripheral não sustenta TX em todo 7.5ms event,
-        #   causa disconnect/reconnect loop
-        # - supervision 5s + async_matrix ON: peripheral dorme, nrf-sdc não
-        #   manda keepalive suficiente, central dropa em idle
+        # 2) interval 7.5ms e supervision 5s ficam como upstream (default).
+        #    Patch anterior (5ffc535) subia pra 15ms/30s, otimizando pro
+        #    peripheral em sleep (bateria). No link ativo (USB), é o caso
+        #    errado de otimização.
+        #
+        # 3) gatt-client-notification-queue-size-4 → size-8 em rmk/Cargo.toml.
+        #    Queue de 4 notifications GATT satura em rajada (>4 eventos
+        #    key-down/up antes do central drenar) → key-up perdido = tecla
+        #    travada. +200 B de RAM, throughput dobrado.
+        #
+        # Histórico de tentativas anteriores (não repetir):
+        # - max_latency=0 + async_matrix ON + interval 7.5ms (7c47edb):
+        #   peripheral dormia e não sustentava TX → disconnect loop.
+        #   Com async_matrix OFF (HEAD atual), peripheral fica sempre
+        #   acordado e aguenta responder em todo event → latency 0 passa
+        #   a ser seguro.
+        # - interval 15ms / latency 4 / supervision 30s (5ffc535):
+        #   atenuou drops em sleep mas introduziu os ~2s de delay inicial.
         working-directory: .
         run: |
           set -euxo pipefail
           git clone --depth 1 https://github.com/HaoboGu/rmk.git /tmp/rmk-vendored
           python3 - <<'PYEOF'
+          import re
           from pathlib import Path
+
+          # --- Patch 1: central.rs — max_latency: N → 0 em todos os presets
           p = Path("/tmp/rmk-vendored/rmk/src/split/ble/central.rs")
           src = p.read_text()
-          s1 = src.replace(
-              "min_connection_interval: Duration::from_micros(7500)",
-              "min_connection_interval: Duration::from_micros(15000)",
-          )
-          assert s1 != src, "min interval 7500 não encontrado"
-          s2 = s1.replace(
-              "max_connection_interval: Duration::from_micros(7500)",
-              "max_connection_interval: Duration::from_micros(15000)",
-          )
-          assert s2 != s1, "max interval 7500 não encontrado"
-          s3 = s2.replace("max_latency: 30", "max_latency: 4")
-          assert s3 != s2, "max_latency: 30 não encontrado"
-          s4 = s3.replace(
-              "supervision_timeout: Duration::from_secs(5)",
-              "supervision_timeout: Duration::from_secs(30)",
-          )
-          assert s4 != s3, "supervision 5s não encontrado"
-          p.write_text(s4)
-          print("OK — interval 7.5→15ms, max_latency 30→4, supervision 5→30s")
+          patched, count = re.subn(r"max_latency:\s*[1-9]\d*", "max_latency: 0", src)
+          assert count >= 1, "Nenhum max_latency não-zero encontrado em central.rs — estrutura mudou"
+          residual = re.findall(r"max_latency:\s*(\d+)", patched)
+          non_zero = [v for v in residual if v != "0"]
+          assert not non_zero, f"Sobraram max_latency não-zero: {non_zero}"
+          p.write_text(patched)
+          print(f"OK central.rs: {count} ocorrência(s) de max_latency: N → 0")
+
+          # --- Patch 2: rmk/Cargo.toml — queue GATT 4 → 8
+          cp = Path("/tmp/rmk-vendored/rmk/Cargo.toml")
+          csrc = cp.read_text()
+          needle = "gatt-client-notification-queue-size-4"
+          assert needle in csrc, f"{needle} ausente em rmk/Cargo.toml"
+          cp.write_text(csrc.replace(needle, "gatt-client-notification-queue-size-8"))
+          print("OK Cargo.toml: gatt-client-notification-queue-size 4 → 8")
           PYEOF
           cat >> dongle/Cargo.toml <<'EOF'
 
