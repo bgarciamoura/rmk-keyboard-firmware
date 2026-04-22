@@ -123,18 +123,20 @@ Objetivo: dashboard completo. Se dividir se ficar pesado.
 
 ---
 
-## F1.1 — Firmwares dos peripherals (BLOQUEADOR CRÍTICO AGORA)
+## F1.1 — Firmwares dos peripherals (parte esquerda ✅)
 
-Com F2-final validado, esta fase é o único bloqueador real pra sair do estado "dongle enumera lindamente, mas nenhuma tecla digita" — não há fonte de eventos até os peripherals parearem.
+Metade esquerda validada em hardware 2026-04-22 (commit `a3ca529`, run `24780338467`). Teclado digitando, Bongo Cat reagindo. Próxima fronteira: metade direita + trackball.
 
-- [ ] **Mapear pinos da matriz esquerda** em `left/keyboard.toml` (4 rows × 6 cols)
-- [ ] **Mapear pinos da matriz direita** em `right/keyboard.toml`
-- [ ] **Mapear pinos SPI da trackball** PMW3360DM em `right/keyboard.toml` (`sck`, `mosi`, `miso`, `cs`, `cpi`)
-- [ ] Decidir diodo (`row2col = true` ou não) conforme PCB
-- [ ] Re-habilitar jobs `left`/`right` em `.github/workflows/build.yml`
-- [ ] Flashar via `probe-rs` nos nRF52840 (UF2 do artifact)
-- [ ] Validar pareamento BLE: peripherals conectam no dongle (BLE addrs `...00:02` e `...00:03`)
-- [ ] Adicionar task BLE ao `central_v2.rs` recebendo eventos HID dos peripherals
+- [x] **Mapear pinos da matriz esquerda** em `left/keyboard.toml` — TBK Mini em SuperMini nRF52840, ROW2COL, commit `a3ca529`
+- [x] Re-habilitar `build-left` em `.github/workflows/build.yml` — job custom com `cargo make uf2-peripheral`, commit `6d4945a`
+- [x] Flashar UF2 no SuperMini via DFU (double-tap RST↔GND)
+- [x] Validar pareamento BLE: left aparece como `L: online` no dashboard do dongle
+- [x] Validar matriz: todas as 21 teclas (3×6 + 3 thumbs) funcionam, Bongo Cat reage
+- [ ] **Mapear pinos da matriz direita** em `right/keyboard.toml` — mesma TBK Mini + Elite-C + SuperMini, mas em orientação RIGHT (flex reversível)
+- [ ] **Mapear pinos SPI da trackball** PMW3360DM em `right/keyboard.toml` (`sck`, `mosi`, `miso`, `cs`, `cpi`) — vai em pads extras do Elite-C Holder
+- [ ] Habilitar `build-right` em `.github/workflows/build.yml` (espelhar job custom do build-left)
+- [ ] Flashar e validar pareamento BLE da direita (BLE addr `...00:03`)
+- [ ] Validar trackball: mouse move chega no host, CPI sensível
 
 ---
 
