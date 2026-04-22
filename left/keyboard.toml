@@ -118,10 +118,14 @@ ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x02]
 
 [split.peripheral.matrix]
 matrix_type = "normal"
-# TBK Mini R1..R4 em ordem de linha (top → thumb). TODO: confirmar orientação
-# quando flashar — se as rows estiverem invertidas, inverter a ordem aqui.
+# TBK Mini tem diodos ROW2COL (banda preta na coluna). Default do RMK é
+# col2row — drive col, read row. Com row2col=true, RMK inverte: drive row,
+# read col. `row_pins` e `col_pins` mantêm a semântica de "pinos ligados
+# às linhas/colunas da matriz" — não precisa trocá-los.
+row2col = true
+# TBK Mini R1..R4 em ordem de linha (top → thumb).
 row_pins = ["P0_02", "P0_24", "P0_22", "P1_06"]
-# TBK Mini C1..C6 em ordem (outside → inside). TODO: confirmar ordem no flash.
+# TBK Mini C1..C6 em ordem (outside → inside).
 col_pins = ["P0_29", "P0_31", "P1_11", "P1_00", "P0_11", "P1_04"]
 
 # ----------------------------------------------------------------------------
