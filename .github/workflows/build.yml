@@ -86,6 +86,52 @@ jobs:
           Path("rmk-left/src/central.rs").unlink(missing_ok=True)
           print("OK — bin central removido + async_matrix desabilitado")
           EOF
+      - name: Vendor + patch RMK (break no write error do peripheral pra reconnect)
+        # O loop do split peripheral em `rmk/src/split/peripheral.rs` silencia
+        # erros de notify GATT via `.write(&e).await.ok();` (linha ~173 do main
+        # upstream). Quando o link BLE fica zumbi — link-layer "connected" mas
+        # GATT notifications não chegam mais no central (observado após ~30s
+        # de ociosidade; causa suspeita: controller-level BLE supervision do
+        # esp-radio no ESP32-S3 OU CCCD stale após idle) — o peripheral fica
+        # tentando TX indefinidamente sem nunca detectar o problema, e só
+        # replug USB restaura o link.
+        #
+        # Fix: substituir `.ok()` por tratamento que faz `break` no erro,
+        # saindo do loop e deixando o wrapper externo disparar reconnect
+        # (mesmo caminho que já existe pra `SplitDriverError::Disconnected`
+        # no read — veja case Err(e) acima no mesmo arquivo).
+        #
+        # Impacto colateral: erros transitórios de write também disparam
+        # reconnect. Reconnect típico nRF52840 ≈ 500ms-2s. Aceitável trade-off
+        # vs link zumbi permanente.
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/HaoboGu/rmk.git /tmp/rmk-vendored
+          python3 - <<'PYEOF'
+          from pathlib import Path
+          p = Path("/tmp/rmk-vendored/rmk/src/split/peripheral.rs")
+          src = p.read_text()
+          old = "                        self.split_driver.write(&e).await.ok();"
+          new = (
+              "                        if let Err(err) = self.split_driver.write(&e).await {\n"
+              "                            error!(\"Split write failed, breaking to reconnect: {:?}\", err);\n"
+              "                            break;\n"
+              "                        }"
+          )
+          assert old in src, "Padrão '.write(&e).await.ok();' não encontrado — upstream mudou"
+          src = src.replace(old, new)
+          p.write_text(src)
+          print("OK peripheral.rs: write() error agora faz break → reconnect")
+          PYEOF
+          cat >> rmk-left/Cargo.toml <<'EOF'
+
+          # Patch injetado pelo CI — NÃO commitar manualmente.
+          [patch."https://github.com/HaoboGu/rmk"]
+          rmk        = { path = "/tmp/rmk-vendored/rmk" }
+          rmk-config = { path = "/tmp/rmk-vendored/rmk-config" }
+          rmk-macro  = { path = "/tmp/rmk-vendored/rmk-macro" }
+          rmk-types  = { path = "/tmp/rmk-vendored/rmk-types" }
+          EOF
       - name: Build peripheral.uf2 (isolated — só o bin peripheral)
         working-directory: ./rmk-left
         run: cargo make uf2-peripheral --release
