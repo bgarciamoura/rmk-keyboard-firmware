@@ -1,14 +1,27 @@
 # Documentation: https://rmk.rs/docs/configuration.html
 #
 # Role: PERIPHERAL[1] / METADE DIREITA (com trackball)
-# Hardware: nRF52840 (alimentada por bateria) + PMW3360DM via SPI
+# Hardware: SuperMini nRF52840 (Pro Micro footprint) + Elite-C Holder 2.1
+#           + flex PCB TBK Mini (Bastard Keyboards, espelhada vs left)
+#           + trackball PMW3360DM via SPI nos pads dedicados do holder
 # USB: desligado. Scan de matriz + leitura SPI do sensor + envio BLE para central.
 #
-# TODO (usuário): preencher PIN_XX com o wiring físico real da sua PCB e os
-# pinos SPI da sua trackball. `cpi` é sensibilidade do sensor (400–12000).
+# Pinout da matriz — idêntico ao left/keyboard.toml porque:
+# - mesma SuperMini (mesmo mapping Pro Micro ↔ nRF)
+# - mesmo Elite-C Holder 2.1 plugado com a mesma orientação
+# - a flex TBK Mini é fisicamente espelhada, mas o pinout Elite-C → MCU
+#   permanece igual; o que muda é a ORDEM das colunas físicas vs lógicas.
+#
+# Ordem das colunas (IMPORTANTE):
+# - No left, col_pins = [C1, C2, C3, C4, C5, C6] (outside → inside) →
+#   mapeia pras cols 0-5 do keymap (col_offset=0).
+# - No right, a flex espelhada faz C1 físico = OUTSIDE direita e C6 físico =
+#   INSIDE direita. O keymap do dongle já tem cols 6-11 na ordem
+#   "inside → outside", então col_pins aqui fica em REVERSO do left:
+#   [C6, C5, C4, C3, C2, C1] físico → cols 6, 7, 8, 9, 10, 11 do keymap.
+# Diodos: ROW2COL (banda preta aponta pra coluna, mesmo schema da left).
 
 [keyboard]
-# Para split peripherals, o `[[bin]]` auto-gerado é `peripheral`.
 name = "peripheral"
 product_name = "Charybdis Right"
 vendor_id = 0x4c4b
@@ -18,6 +31,7 @@ chip = "nrf52840"
 usb_enable = false
 
 # Mesmo [layout] do dongle e do left — mantém schema compilável.
+# A central é quem interpreta o keymap em runtime.
 [layout]
 rows = 4
 cols = 12
@@ -69,6 +83,10 @@ keymap = [
 
 [ble]
 enabled = true
+# Bateria 3.7V LiPo via VDDH (SAADC nRF). Divisor calibrado pro full-swing.
+# NOTA: sem default_tx_power aqui — subir TX no peripheral quebra nRF-sdc
+# com SuperMini (ver TODO.md § Extensão — Range de RF). TX vem todo do
+# dongle via TxPower::P20 no BleConnector.
 battery_adc_pin = "vddh"
 adc_divider_measured = 2000
 adc_divider_total = 2806
@@ -77,19 +95,42 @@ adc_divider_total = 2806
 connection = "ble"
 
 [split.central]
-rows = 1
-cols = 1
+# Central não tem matriz local (é o dongle ESP32-S3, rows/cols = 0).
+rows = 0
+cols = 0
 row_offset = 0
 col_offset = 0
 ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x01]
 
-# Placeholder exigido por rmk-config 0.6.0 em SplitBoardConfig. Pinos do dongle
-# (ESP32-S3); a metade direita em si usa [split.peripheral.matrix] abaixo.
+# Placeholder exigido por rmk-config 0.6.0 (SplitBoardConfig.matrix não-Option).
+# Pinos dummy no formato nRF52840 (compilação com chip = nrf52840). Nunca
+# usados — o peripheral não varre a matriz da central.
 [split.central.matrix]
 matrix_type = "normal"
-row_pins = ["GPIO1"]
-col_pins = ["GPIO2"]
+row_pins = ["P0_28"]
+col_pins = ["P0_03"]
 
+# ----------------------------------------------------------------------------
+# Peripheral 0 = metade esquerda. Pinos dummy pra satisfazer o schema; este
+# firmware (right) não usa a matriz esquerda.
+# ----------------------------------------------------------------------------
+[[split.peripheral]]
+rows = 4
+cols = 6
+row_offset = 0
+col_offset = 0
+ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x02]
+
+[split.peripheral.matrix]
+matrix_type = "normal"
+row_pins = ["P0_04", "P0_05", "P0_06", "P0_07"]
+col_pins = ["P0_08", "P0_12", "P0_14", "P0_15", "P0_16", "P0_17"]
+
+# ----------------------------------------------------------------------------
+# Peripheral 1 = ESTA metade (RIGHT). Pinos REAIS — canônicos do TBK Mini
+# idênticos aos do left (mesmo SuperMini + mesmo Elite-C Holder 2.1).
+# ORDEM das colunas INVERSA pra bater com col_offset=6 + keymap inside→outside.
+# ----------------------------------------------------------------------------
 [[split.peripheral]]
 rows = 4
 cols = 6
@@ -99,12 +140,23 @@ ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x03]
 
 [split.peripheral.matrix]
 matrix_type = "normal"
-# TODO: substituir pelos pinos reais da PCB direita
-row_pins = ["P0_XX", "P0_XX", "P0_XX", "P0_XX"]
-col_pins = ["P0_XX", "P0_XX", "P0_XX", "P0_XX", "P0_XX", "P0_XX"]
+row2col = true
+# R1..R4 físico → rows do keymap (top → thumb), idêntico ao left.
+row_pins = ["P1_15", "P0_24", "P0_22", "P1_06"]
+# Colunas em ORDEM REVERSA do left (C6, C5, C4, C3, C2, C1 físicos) →
+# mapeia inside → outside no keymap cols 6..11.
+# P0.09 é pino NFC; template nRF52840 já tem `nfc-pins-as-gpio`.
+col_pins = ["P1_04", "P0_11", "P1_00", "P0_09", "P0_29", "P0_02"]
 
-# Trackball PMW3360DM — família pmw33xx suportada em RMK upstream.
-# TODO (usuário): substituir PIN_XX pelos pinos SPI do seu wiring.
-# `cpi` = sensibilidade (400 baixo, 1600 médio, 12000 alto).
+# ----------------------------------------------------------------------------
+# Trackball PMW3360DM via SPI. Elite-C Holder 2.1 roteia os 4 pads do header
+# dedicado pra pinos padrão Pro Micro SPI (B1/B2/B3) + CS em A3.
+# No SuperMini, SPI pins (B1/B2/B3) coincidem com Nice!Nano; A3 difere:
+# - SCK  = Pro Micro "15" / B1 = P1_13 (SuperMini e Nice!Nano)
+# - MOSI = Pro Micro "16" / B2 = P0_28 (SuperMini e Nice!Nano)
+# - MISO = Pro Micro "14" / B3 = P0_03 (SuperMini e Nice!Nano)
+# - CS   = Pro Micro A3   / F4 = P0_31 (SuperMini; Nice!Nano seria P0_30)
+# Se o user soldou o CS num pad diferente, trocar aqui antes de flashar.
+# CPI = 1000 (baseline; Charybdis QMK usa 800-1600 por default, ajustar depois).
 [[input_device.pointing]]
-interface = { spi = { instance = "SPI3", sck = "P0_XX", mosi = "P0_XX", miso = "P0_XX", cs = "P0_XX", cpi = 1000 } }
+interface = { spi = { instance = "SPI3", sck = "P1_13", mosi = "P0_28", miso = "P0_03", cs = "P0_31", cpi = 1000 } }

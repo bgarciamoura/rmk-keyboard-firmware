@@ -142,10 +142,97 @@ jobs:
           path: rmk-left/*-peripheral.uf2
 
   # -------------------------------------------------------------------------
-  # Right peripheral (nRF52840 + trackball PMW3360): desabilitado até o
-  # hardware ser montado. Mesmo padrão do build-left quando reativar.
+  # Right peripheral (nRF52840 + trackball PMW3360): espelho do build-left com
+  # right/keyboard.toml + mesmos dois patches (remove bin central, desabilita
+  # async_matrix, break-on-write-error no split peripheral.rs do RMK vendored).
   # -------------------------------------------------------------------------
-  # build-right:
-  #   name: build-right
-  #   runs-on: ubuntu-latest
-  #   ... (espelhar build-left com right/keyboard.toml)
+  build-right:
+    name: build-right
+    runs-on: ubuntu-latest
+    env:
+      LIBSSL: "libssl1.1_1.1.1f-1ubuntu2_amd64.deb"
+      RUST_MIN_STACK: "67108864"
+    steps:
+      - uses: cargo-bins/cargo-binstall@main
+      - uses: actions/checkout@v6
+      - uses: actions/cache@v5
+        with:
+          path: |
+            libssl*.deb
+          key: ${{ runner.os }}-libssl
+      - name: Install libssl
+        run: |
+          [ ! -f $LIBSSL ] && wget http://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/$LIBSSL
+          sudo dpkg -i $LIBSSL
+      - name: Install rmkit, flip-link and cargo-make
+        run: cargo binstall cargo-make rmkit flip-link -y
+      - name: Create firmware project (scaffold from right/keyboard.toml)
+        run: rmkit create --keyboard-toml-path right/keyboard.toml --vial-json-path dongle/vial.json --version main --target-dir rmk-right
+      - name: Patch Cargo.toml (remove bin central + desabilita async_matrix)
+        # Mesma lógica do build-left: remove bin central (não compila no
+        # contexto peripheral) + remove feature async_matrix (incompat com
+        # row2col = true no template rmkit pra nRF52840).
+        run: |
+          python3 - <<'EOF'
+          import re
+          from pathlib import Path
+          path = Path("rmk-right/Cargo.toml")
+          content = path.read_text()
+
+          # Fix 1: Remove [[bin]] central
+          new = re.sub(
+              r'\[\[bin\]\]\s*\n\s*name\s*=\s*"central"\s*\n\s*path\s*=\s*"src/central\.rs"\s*\n',
+              '',
+              content,
+          )
+          assert new != content, "Padrão do bin central não encontrado no Cargo.toml"
+
+          # Fix 2: Remove feature async_matrix da lista de features do rmk
+          new2 = re.sub(r'\n\s*"async_matrix",?\s*', '\n', new)
+          assert new2 != new, "Feature async_matrix não encontrada no Cargo.toml"
+
+          path.write_text(new2)
+          Path("rmk-right/src/central.rs").unlink(missing_ok=True)
+          print("OK — bin central removido + async_matrix desabilitado")
+          EOF
+      - name: Vendor + patch RMK (break no write error do peripheral pra reconnect)
+        # Mesma correção aplicada no build-left: `.write(&e).await.ok();` em
+        # `rmk/src/split/peripheral.rs:173` silencia erros de notify GATT e
+        # gera link zumbi após idle. Substituir por tratamento que dá break
+        # no Err pra disparar reconnect via o wrapper externo.
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/HaoboGu/rmk.git /tmp/rmk-vendored
+          python3 - <<'PYEOF'
+          from pathlib import Path
+          p = Path("/tmp/rmk-vendored/rmk/src/split/peripheral.rs")
+          src = p.read_text()
+          old = "                        self.split_driver.write(&e).await.ok();"
+          new = (
+              "                        if let Err(err) = self.split_driver.write(&e).await {\n"
+              "                            error!(\"Split write failed, breaking to reconnect: {:?}\", err);\n"
+              "                            break;\n"
+              "                        }"
+          )
+          assert old in src, "Padrão '.write(&e).await.ok();' não encontrado — upstream mudou"
+          src = src.replace(old, new)
+          p.write_text(src)
+          print("OK peripheral.rs: write() error agora faz break → reconnect")
+          PYEOF
+          cat >> rmk-right/Cargo.toml <<'EOF'
+
+          # Patch injetado pelo CI — NÃO commitar manualmente.
+          [patch."https://github.com/HaoboGu/rmk"]
+          rmk        = { path = "/tmp/rmk-vendored/rmk" }
+          rmk-config = { path = "/tmp/rmk-vendored/rmk-config" }
+          rmk-macro  = { path = "/tmp/rmk-vendored/rmk-macro" }
+          rmk-types  = { path = "/tmp/rmk-vendored/rmk-types" }
+          EOF
+      - name: Build peripheral.uf2 (isolated — só o bin peripheral)
+        working-directory: ./rmk-right
+        run: cargo make uf2-peripheral --release
+      - name: Upload peripheral.uf2
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware_right_uf2
+          path: rmk-right/*-peripheral.uf2
