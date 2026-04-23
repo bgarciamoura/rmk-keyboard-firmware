@@ -88,15 +88,13 @@ enabled = true
 battery_adc_pin = "vddh"
 adc_divider_measured = 2000
 adc_divider_total = 2806
-# TX power do rádio nRF52840 (dBm). Começando conservador em +4 dBm
-# porque a primeira tentativa em +8 dBm (commit 0f64398, revertido em
-# d958f44) derrubou o peripheral em runtime — build passou mas o init
-# do nrf-sdc retornou Err no `.default_tx_power(8)?` do código gerado
-# pela macro. Valores discretos aceitos pelo softdevice controller
-# (sdc.rs): [-40,-20,-16,-12,-8,-4,0,3,4,5,6,7,8]. Começar em 4 e
-# escalar se estável; se +4 também falhar, é problema estrutural no
-# nrf-sdc pinado no template rmkit e aí volta pra config default.
-default_tx_power = 4
+# NOTA: default_tx_power intencionalmente ausente. Duas tentativas falharam:
+# - commit 0f64398: default_tx_power = 8 → peripheral não conectou
+# - commit 5cb5f7a: default_tx_power = 4 → range piorou
+# Suspeita: TOML→macro→nrf-sdc desafina a antena cerâmica do SuperMini ou
+# a API não está fazendo o que a doc sugere na versão pinada pelo template.
+# Estratégia atual: mexer só no TX power do dongle (ESP32-S3), que tem
+# stack BLE mais maduro e consumo irrelevante em USB.
 
 [split]
 connection = "ble"

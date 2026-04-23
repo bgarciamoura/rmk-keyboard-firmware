@@ -390,8 +390,19 @@ mod keyboard {
 
         let _trng_source = ::esp_hal::rng::TrngSource::new(p.RNG, p.ADC1);
         let mut rng = ::esp_hal::rng::Trng::try_new().unwrap();
+        // TX power no teto do ESP32-S3 (+20 dBm = 100 mW equiv). Dongle é
+        // USB-powered, então os ~80 mA extras em TX não importam. Compensa o
+        // link assimétrico com a antena marginal do SuperMini no peripheral:
+        // quanto mais potência no lado do central, maior o SNR no uplink do
+        // peripheral pro central, o que permite o controller do peripheral
+        // reduzir retransmissões e manter o link.
+        // Histórico: P9 (default implícito) em 0f64398 foi revertido junto
+        // com o fix do peripheral; testando P20 isolado agora, peripheral
+        // de volta ao baseline sem default_tx_power.
+        let ble_cfg = ::esp_radio::ble::Config::default()
+            .with_default_tx_power(::esp_radio::ble::TxPower::P20);
         let connector =
-            ::esp_radio::ble::controller::BleConnector::new(p.BT, Default::default()).unwrap();
+            ::esp_radio::ble::controller::BleConnector::new(p.BT, ble_cfg).unwrap();
         let controller: ::bt_hci::controller::ExternalController<_, 64> =
             ::bt_hci::controller::ExternalController::new(connector);
         let ble_addr = [0xC0u8, 0xDE, 0xC0, 0xDE, 0x00, 0x01];
