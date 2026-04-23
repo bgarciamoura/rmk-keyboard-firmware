@@ -111,25 +111,15 @@ row_pins = ["P0_28"]
 col_pins = ["P0_03"]
 
 # ----------------------------------------------------------------------------
-# Peripheral 0 = metade esquerda. Pinos dummy pra satisfazer o schema; este
-# firmware (right) não usa a matriz esquerda.
-# ----------------------------------------------------------------------------
-[[split.peripheral]]
-rows = 4
-cols = 6
-row_offset = 0
-col_offset = 0
-ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x02]
-
-[split.peripheral.matrix]
-matrix_type = "normal"
-row_pins = ["P0_04", "P0_05", "P0_06", "P0_07"]
-col_pins = ["P0_08", "P0_12", "P0_14", "P0_15", "P0_16", "P0_17"]
-
-# ----------------------------------------------------------------------------
-# Peripheral 1 = ESTA metade (RIGHT). Pinos REAIS — canônicos do TBK Mini
+# Peripheral 0 = ESTA metade (RIGHT). Pinos REAIS — canônicos do TBK Mini
 # idênticos aos do left (mesmo SuperMini + mesmo Elite-C Holder 2.1).
 # ORDEM das colunas INVERSA pra bater com col_offset=6 + keymap inside→outside.
+#
+# IMPORTANTE: o rmkit/rmk-macro usa o PRIMEIRO [[split.peripheral]] pra
+# compilar os pinos de matriz do firmware peripheral. Logo, ESTA metade
+# (right) precisa ser a entrada 0 — igual o left/keyboard.toml faz com
+# a própria esquerda. Inverter a ordem causa panic (teclado scaneia com
+# pinos dummy, primeira flashada do 55ed2fc piscou LEDs).
 # ----------------------------------------------------------------------------
 [[split.peripheral]]
 rows = 4
@@ -147,6 +137,22 @@ row_pins = ["P1_15", "P0_24", "P0_22", "P1_06"]
 # mapeia inside → outside no keymap cols 6..11.
 # P0.09 é pino NFC; template nRF52840 já tem `nfc-pins-as-gpio`.
 col_pins = ["P1_04", "P0_11", "P1_00", "P0_09", "P0_29", "P0_02"]
+
+# ----------------------------------------------------------------------------
+# Peripheral 1 = metade esquerda. Pinos dummy pra satisfazer o schema; este
+# firmware (right) não usa a matriz esquerda.
+# ----------------------------------------------------------------------------
+[[split.peripheral]]
+rows = 4
+cols = 6
+row_offset = 0
+col_offset = 0
+ble_addr = [0xC0, 0xDE, 0xC0, 0xDE, 0x00, 0x02]
+
+[split.peripheral.matrix]
+matrix_type = "normal"
+row_pins = ["P0_04", "P0_05", "P0_06", "P0_07"]
+col_pins = ["P0_08", "P0_12", "P0_14", "P0_15", "P0_16", "P0_17"]
 
 # ----------------------------------------------------------------------------
 # Trackball PMW3360DM via SPI — COMENTADO TEMPORARIAMENTE.
