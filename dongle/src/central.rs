@@ -390,16 +390,8 @@ mod keyboard {
 
         let _trng_source = ::esp_hal::rng::TrngSource::new(p.RNG, p.ADC1);
         let mut rng = ::esp_hal::rng::Trng::try_new().unwrap();
-        // TX power explícito em +9 dBm (default do esp-radio no ESP32-S3). Ancora
-        // a config pra evitar que uma bump de versão mude o default silenciosamente;
-        // combina com o `default_tx_power = 8` do peripheral (left/keyboard.toml)
-        // pra cobrir sinal em antena PCB on-board ↔ antena cerâmica da SuperMini.
-        // Pode subir pra P12/P20 se range ainda for marginal — consumo nem entra
-        // na equação porque o dongle é USB-powered.
-        let ble_cfg = ::esp_radio::ble::Config::default()
-            .with_default_tx_power(::esp_radio::ble::TxPower::P9);
         let connector =
-            ::esp_radio::ble::controller::BleConnector::new(p.BT, ble_cfg).unwrap();
+            ::esp_radio::ble::controller::BleConnector::new(p.BT, Default::default()).unwrap();
         let controller: ::bt_hci::controller::ExternalController<_, 64> =
             ::bt_hci::controller::ExternalController::new(connector);
         let ble_addr = [0xC0u8, 0xDE, 0xC0, 0xDE, 0x00, 0x01];

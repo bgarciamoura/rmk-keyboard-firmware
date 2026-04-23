@@ -88,14 +88,6 @@ enabled = true
 battery_adc_pin = "vddh"
 adc_divider_measured = 2000
 adc_divider_total = 2806
-# TX power do rádio nRF52840 (dBm). Range válido pro nrf-sdc sem feature
-# `support_le_power_class_1`: [-40,-20,-16,-12,-8,-4,0,3,4,5,6,7,8].
-# +8 dBm é o teto do rádio e o canônico em ZMK. Cobre sinal marginal em
-# antena PCB de clone (SuperMini) → dongle ESP32-S3 (~5-10m real).
-# Consumo médio sobe ~1-2mA no ADV/CONN, ainda viável em bateria 500mAh.
-# A macro `rmk_keyboard` expõe esse campo via rmk-config `default_tx_power`
-# e injeta `sdc::Builder::default_tx_power(8)?` no build_sdc() gerado.
-default_tx_power = 8
 
 [split]
 connection = "ble"
