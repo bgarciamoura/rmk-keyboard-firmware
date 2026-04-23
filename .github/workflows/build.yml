@@ -195,6 +195,15 @@ jobs:
           Path("rmk-right/src/central.rs").unlink(missing_ok=True)
           print("OK — bin central removido + async_matrix desabilitado")
           EOF
+      - name: Force peripheral id=1 for right half
+        # O template rmk-template/nrf52840_split/src/peripheral.rs é hardcoded
+        # com `#[rmk_peripheral(id = 0)]`. Não há campo TOML nem flag rmkit pra
+        # mudar isso — o id define o byte do ManufacturerSpecificData no BLE
+        # advertisement que o central usa pra distinguir os peripherals.
+        # Sem patch: right advertises como id=0, dongle reconhece como left.
+        run: |
+          sed -i 's/rmk_peripheral(id = 0)/rmk_peripheral(id = 1)/' rmk-right/src/peripheral.rs
+          grep 'rmk_peripheral' rmk-right/src/peripheral.rs
       - name: Vendor + patch RMK (break no write error do peripheral pra reconnect)
         # Mesma correção aplicada no build-left: `.write(&e).await.ok();` em
         # `rmk/src/split/peripheral.rs:173` silencia erros de notify GATT e
