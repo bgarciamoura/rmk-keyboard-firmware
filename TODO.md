@@ -149,12 +149,21 @@ Após quatro iterações de diagnóstico, o link BLE dongle↔left foi estabiliz
 - `.github/workflows/build-f2.yml` — patches (2) e (3) no central (dongle)
 - `dongle/keyboard.toml`, `left/keyboard.toml` — **inalterados** (sem config extra nova)
 
-**Commits do marco:** `ca76145` (async_matrix OFF), `59da69d` (3 presets + queue 8), `81da05c` (break on write error). Runs: `24805713394`, `24807530220`, `24808479297`. Artefatos atuais na raiz: `dongle.bin` md5 `7a9869e9`, `left.uf2` md5 `fd4dcb1c`.
+**Commits do marco:** `ca76145` (async_matrix OFF), `59da69d` (3 presets + queue 8), `81da05c` (break on write error), `027571c` (TX power assimétrico). Runs: `24805713394`, `24807530220`, `24808479297`, `24845537360`. Artefatos finais na raiz: `dongle.bin` md5 `6a31810e`, `left.uf2` md5 `77f82579`.
+
+### Extensão — Range de RF (2026-04-23, mesmo dia do marco)
+
+Após o fix de 4 bugs acima, restou sintoma de range curto: link caía ao afastar ~30 cm do dongle. Tentativa inicial de subir `default_tx_power` no peripheral falhou: `= 8` derrubou o init do nrf-sdc (build verde, runtime morto — `?` do Builder propagou Err); `= 4` compilou e rodou mas **piorou** o range em vez de melhorar (suspeita: macro → nrf-sdc → SuperMini desafina a antena cerâmica do clone, ou voltage sag do regulador ruim). Ambas revertidas.
+
+**Fix final (commit `027571c`):** link assimétrico — peripheral intocado, dongle sobe pra `TxPower::P20` (+20 dBm, teto ESP32-S3) via `Config::default().with_default_tx_power(TxPower::P20)` no `BleConnector::new` em `dongle/src/central.rs`. Dongle é USB-powered, os ~80 mA extras em TX não importam. +11 dB sobre o default anterior (P9) ≈ multiplica range por ~3-4×. User reportou "simplesmente perfeito".
+
+**Lição:** nunca tocar em `default_tx_power` no TOML do peripheral com esta versão do template rmkit — usar exclusivamente TX power do central.
 
 **Observações pro futuro:**
 - Causa raiz do link zumbi (~30s idle → GATT para) não foi nailada com sniffer. O fix #4 é defensivo: detecta e reconecta em vez de ficar morto. Vale investigar esp-radio/bt-hci supervision defaults no ESP32-S3 se alguém tiver sniffer BLE.
 - Se Issue #583 (`ble_latency` configurável no TOML) for mergeada upstream, o sed do build-f2.yml fica obsoleto — trocar por `[rmk.ble] latency = 0` direto no `dongle/keyboard.toml`.
 - Em um eventual upgrade de RMK, os asserts dos patches vão disparar se os padrões de string mudarem — é o sanity-check de versão embutido.
+- A descoberta de `default_tx_power` quebrando o peripheral (em vez de só não ajudar) é digna de issue upstream. Reproduzível: `[ble] default_tx_power = 8` em qualquer config peripheral + SuperMini nRF52840 → Err no init. Reportar quando houver tempo de escrever um MRE.
 - [ ] **Soldar os 3 thumbs esquerdos** (row 3, cols 1 / 3 / 4 = MouseBtn1 / LT(2,Backspace) / LT(1,Space)) e validar — ainda não montados fisicamente; pinos/matrix já declarados no keymap
 - [ ] **Mapear pinos da matriz direita** em `right/keyboard.toml` — mesma TBK Mini + Elite-C + SuperMini, mas em orientação RIGHT (flex reversível)
 - [ ] **Mapear pinos SPI da trackball** PMW3360DM em `right/keyboard.toml` (`sck`, `mosi`, `miso`, `cs`, `cpi`) — vai em pads extras do Elite-C Holder
