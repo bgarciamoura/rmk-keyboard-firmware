@@ -95,6 +95,46 @@ jobs:
           assert needle in csrc, f"{needle} ausente em rmk/Cargo.toml"
           cp.write_text(csrc.replace(needle, "gatt-client-notification-queue-size-8"))
           print("OK Cargo.toml: gatt-client-notification-queue-size 4 → 8")
+
+          # --- Patch 3: central.rs — stagger peripheral managers por peri_id
+          #
+          # Problema: quando 2 peripherals tentam conectar simultaneamente ao
+          # dongle ESP32-S3, o executor do central TRAVA (uptime do display
+          # congela). Diagnóstico: race entre `scan_peripherals` e o
+          # `central.connect()` de dois managers paralelos no controller
+          # esp-radio/bt-hci do ESP32-S3. O SCANNING_MUTEX só cobre a fase
+          # de `connect()` — se o scan_peripherals está no meio de um HCI
+          # cmd quando o segundo manager tenta connect, controller hangs.
+          #
+          # Fix: stagger temporal. Peripheral 0 (left) começa imediatamente,
+          # peripheral 1 (right) aguarda 1.5s antes de primeira tentativa.
+          # Serializa na prática sem precisar expandir mutex upstream.
+          #
+          # Custo: boot do segundo peripheral ~1.5s mais lento. Após os
+          # dois pareados e peer_address salvo em storage, reconexões
+          # posteriores já têm endereço em cache e o stagger só importa
+          # no primeiro pareamento ou após erase-region.
+          p2 = Path("/tmp/rmk-vendored/rmk/src/split/ble/central.rs")
+          src2 = p2.read_text()
+          # Ancora no início do loop do run_ble_peripheral_manager. O padrão
+          # é: assinatura termina com `stack: &'a Stack<'a, C, DefaultPacketPool>,\n) {\n    loop {`.
+          old = (
+              "    stack: &'a Stack<'a, C, DefaultPacketPool>,\n"
+              ") {\n"
+              "    loop {\n"
+          )
+          new = (
+              "    stack: &'a Stack<'a, C, DefaultPacketPool>,\n"
+              ") {\n"
+              "    // Stagger: evita race HCI no ESP32-S3 quando múltiplos peripherals\n"
+              "    // tentam conectar ao mesmo tempo. Patch injetado pelo CI do\n"
+              "    // rmk-keyboard-firmware (build-f2.yml).\n"
+              "    embassy_time::Timer::after_millis((peri_id as u64) * 1500).await;\n"
+              "    loop {\n"
+          )
+          assert old in src2, "Padrão do run_ble_peripheral_manager não encontrado — upstream mudou"
+          p2.write_text(src2.replace(old, new))
+          print("OK central.rs: stagger de 1500ms * peri_id inserido no manager")
           PYEOF
           cat >> dongle/Cargo.toml <<'EOF'
 
