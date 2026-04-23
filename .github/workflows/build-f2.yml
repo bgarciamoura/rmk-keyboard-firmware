@@ -116,20 +116,21 @@ jobs:
           # no primeiro pareamento ou após erase-region.
           p2 = Path("/tmp/rmk-vendored/rmk/src/split/ble/central.rs")
           src2 = p2.read_text()
-          # Ancora no início do loop do run_ble_peripheral_manager. O padrão
-          # é: assinatura termina com `stack: &'a Stack<'a, C, DefaultPacketPool>,\n) {\n    loop {`.
+          # Ancora entre o trace! inicial e o `loop {` principal do
+          # run_ble_peripheral_manager (antes do primeiro statement real).
           old = (
-              "    stack: &'a Stack<'a, C, DefaultPacketPool>,\n"
-              ") {\n"
+              "    trace!(\"SPLIT_MESSAGE_MAX_SIZE: {}\", SPLIT_MESSAGE_MAX_SIZE);\n"
+              "\n"
               "    loop {\n"
           )
           new = (
-              "    stack: &'a Stack<'a, C, DefaultPacketPool>,\n"
-              ") {\n"
+              "    trace!(\"SPLIT_MESSAGE_MAX_SIZE: {}\", SPLIT_MESSAGE_MAX_SIZE);\n"
+              "\n"
               "    // Stagger: evita race HCI no ESP32-S3 quando múltiplos peripherals\n"
               "    // tentam conectar ao mesmo tempo. Patch injetado pelo CI do\n"
               "    // rmk-keyboard-firmware (build-f2.yml).\n"
               "    embassy_time::Timer::after_millis((peri_id as u64) * 1500).await;\n"
+              "\n"
               "    loop {\n"
           )
           assert old in src2, "Padrão do run_ble_peripheral_manager não encontrado — upstream mudou"
