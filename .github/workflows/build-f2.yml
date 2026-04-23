@@ -129,13 +129,13 @@ jobs:
               "    // Stagger: evita race HCI no ESP32-S3 quando múltiplos peripherals\n"
               "    // tentam conectar ao mesmo tempo. Patch injetado pelo CI do\n"
               "    // rmk-keyboard-firmware (build-f2.yml).\n"
-              "    embassy_time::Timer::after_millis((peri_id as u64) * 1500).await;\n"
+              "    embassy_time::Timer::after_millis((peri_id as u64) * 5000).await;\n"
               "\n"
               "    loop {\n"
           )
           assert old in src2, "Padrão do run_ble_peripheral_manager não encontrado — upstream mudou"
           p2.write_text(src2.replace(old, new))
-          print("OK central.rs: stagger de 1500ms * peri_id inserido no manager")
+          print("OK central.rs: stagger de 5000ms * peri_id inserido no manager")
           PYEOF
           cat >> dongle/Cargo.toml <<'EOF'
 
