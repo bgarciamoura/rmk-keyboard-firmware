@@ -159,4 +159,4 @@ col_pins = ["P1_04", "P0_11", "P1_00", "P0_09", "P0_29", "P0_02"]
 # Se o user soldou o CS num pad diferente, trocar aqui antes de flashar.
 # CPI = 1000 (baseline; Charybdis QMK usa 800-1600 por default, ajustar depois).
 [[input_device.pointing]]
-interface = { spi = { instance = "SPI3", sck = "P1_13", mosi = "P0_28", miso = "P0_03", cs = "P0_31", cpi = 1000 } }
+interface = { Spi = { instance = "SPI3", sck = "P1_13", mosi = "P0_28", miso = "P0_03", cs = "P0_31", cpi = 1000 } }
