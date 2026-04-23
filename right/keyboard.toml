@@ -149,14 +149,16 @@ row_pins = ["P1_15", "P0_24", "P0_22", "P1_06"]
 col_pins = ["P1_04", "P0_11", "P1_00", "P0_09", "P0_29", "P0_02"]
 
 # ----------------------------------------------------------------------------
-# Trackball PMW3360DM via SPI. Elite-C Holder 2.1 roteia os 4 pads do header
-# dedicado pra pinos padrão Pro Micro SPI (B1/B2/B3) + CS em A3.
-# No SuperMini, SPI pins (B1/B2/B3) coincidem com Nice!Nano; A3 difere:
-# - SCK  = Pro Micro "15" / B1 = P1_13 (SuperMini e Nice!Nano)
-# - MOSI = Pro Micro "16" / B2 = P0_28 (SuperMini e Nice!Nano)
-# - MISO = Pro Micro "14" / B3 = P0_03 (SuperMini e Nice!Nano)
-# - CS   = Pro Micro A3   / F4 = P0_31 (SuperMini; Nice!Nano seria P0_30)
-# Se o user soldou o CS num pad diferente, trocar aqui antes de flashar.
-# CPI = 1000 (baseline; Charybdis QMK usa 800-1600 por default, ajustar depois).
-[[input_device.pointing]]
-interface = { Spi = { instance = "SPI3", sck = "P1_13", mosi = "P0_28", miso = "P0_03", cs = "P0_31", cpi = 1000 } }
+# Trackball PMW3360DM via SPI — COMENTADO TEMPORARIAMENTE.
+#
+# Primeira tentativa (commit 55ed2fc) causou panic loop no peripheral
+# (LEDs vermelho + azul piscando) logo após flash. Suspeita: pino CS
+# (P0_31/A3) incorreto ou instance SPI3 com conflito — o driver PMW3360
+# tenta ler chip ID via SPI no init e, se não receber valor esperado,
+# panica antes do peripheral entrar em advertising.
+#
+# Estratégia de bisect: isolar o problema reativando só a matriz primeiro.
+# Se o peripheral conectar e digitar sem esse bloco, confirma que o
+# panic é do driver PMW. Aí re-ativa com pinos ajustados.
+# [[input_device.pointing]]
+# interface = { Spi = { instance = "SPI3", sck = "P1_13", mosi = "P0_28", miso = "P0_03", cs = "P0_31", cpi = 1000 } }
