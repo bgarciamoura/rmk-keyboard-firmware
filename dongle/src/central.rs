@@ -113,7 +113,7 @@ const BG: Rgb565 = Rgb565::new(3, 6, 12);
         PeripheralConnectedEvent,
         PeripheralBatteryEvent,
     ],
-    poll_interval = 500
+    poll_interval = 5000
 )]
 pub struct DisplayUi {
     display: Jd9853Display<'static, DongleSpi>,
