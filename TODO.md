@@ -123,15 +123,38 @@ Objetivo: dashboard completo. Se dividir se ficar pesado.
 
 ---
 
-## F1.1 — Firmwares dos peripherals (parte esquerda ✅)
+## F1.1 — Firmwares dos peripherals (parte esquerda ✅ + BLE estável ✅)
 
-Metade esquerda validada em hardware 2026-04-22 (commit `a3ca529`, run `24780338467`). Teclado digitando, Bongo Cat reagindo. Próxima fronteira: metade direita + trackball.
+Metade esquerda validada em hardware 2026-04-22 (commit `a3ca529`, run `24780338467`). Estabilidade BLE do link split conquistada em 2026-04-23 (commit `81da05c`, run `24808479297`) — link deixou de "dormir" em idle, rajadas não perdem key-up, reconexão automática após zumbi. Próxima fronteira: metade direita + trackball.
 
 - [x] **Mapear pinos da matriz esquerda** em `left/keyboard.toml` — TBK Mini em SuperMini nRF52840, ROW2COL, commit `a3ca529`
 - [x] Re-habilitar `build-left` em `.github/workflows/build.yml` — job custom com `cargo make uf2-peripheral`, commit `6d4945a`
 - [x] Flashar UF2 no SuperMini via DFU (double-tap RST↔GND)
 - [x] Validar pareamento BLE: left aparece como `L: online` no dashboard do dongle
 - [x] Validar matriz: 18 teclas alpha (3×6) funcionando, Bongo Cat reage a cada keypress
+
+### 🏁 Marco — BLE split link estável (2026-04-23)
+
+Após quatro iterações de diagnóstico, o link BLE dongle↔left foi estabilizado sem troca de hardware nem alterações no keyboard.toml. Quatro bugs distintos identificados e fixos sobrepostos aplicados em CI:
+
+1. **`async_matrix` + `row2col=true` incompatíveis** — GPIOTE wake-up espera edge na direção oposta, peripheral dormia e não acordava. Fix: regex remove a feature `async_matrix` do Cargo.toml gerado pelo rmkit em `build.yml`. Trade-off: polling contínuo, ~5 mA vs ~1 mA.
+2. **Upstream tem 3 presets de conn params, sed antigo só patchava 1** — default (linha 290), sleep-connected-to-host (551), sleep-advertising (560). Link usava algum preset não-patchado silenciosamente. Fix: regex `max_latency:\s*[1-9]\d*` → `max_latency: 0` cobre todas as ocorrências; ZMK-style latency=0 é correto pro link split já que o peripheral RMK não tem queue persistente.
+3. **Queue GATT client-side = 4 notifications** — rajada de >4 key-down/up antes do central drenar → notification dropada silenciosamente → key-up perdido = tecla "travada". Fix: `gatt-client-notification-queue-size-4` → `-8` em `rmk/Cargo.toml` vendored. Custo ~200 B RAM.
+4. **Loop do split peripheral silenciava erros de notify com `.write(&e).await.ok()`** — quando o link entrava em estado zumbi (link-layer "connected" via empty PDUs do BLE, mas GATT sem entrega — causa raiz provável: supervision do controller esp-radio após ~30s idle), peripheral ficava tentando TX sem detectar. Fix: patchar `rmk/src/split/peripheral.rs:173` pra dar `break` no `Err`, disparando o mesmo caminho de reconnect do `SplitDriverError::Disconnected`. Hiccup de ~500 ms-2 s na primeira tecla após idle longo, depois flui normal.
+
+**Estratégia de vendorização upstream:** tanto `build.yml` (left) quanto `build-f2.yml` (dongle) clonam `haobogu/rmk@main` em `/tmp/rmk-vendored`, aplicam patches Python com asserts contando ocorrências, e injetam `[patch."https://github.com/HaoboGu/rmk"]` no Cargo.toml gerado. Todo patch vive no workflow — zero código compilado localmente patchado manualmente.
+
+**Arquivos tocados no marco:**
+- `.github/workflows/build.yml` — patches (1) e (4) no peripheral (left)
+- `.github/workflows/build-f2.yml` — patches (2) e (3) no central (dongle)
+- `dongle/keyboard.toml`, `left/keyboard.toml` — **inalterados** (sem config extra nova)
+
+**Commits do marco:** `ca76145` (async_matrix OFF), `59da69d` (3 presets + queue 8), `81da05c` (break on write error). Runs: `24805713394`, `24807530220`, `24808479297`. Artefatos atuais na raiz: `dongle.bin` md5 `7a9869e9`, `left.uf2` md5 `fd4dcb1c`.
+
+**Observações pro futuro:**
+- Causa raiz do link zumbi (~30s idle → GATT para) não foi nailada com sniffer. O fix #4 é defensivo: detecta e reconecta em vez de ficar morto. Vale investigar esp-radio/bt-hci supervision defaults no ESP32-S3 se alguém tiver sniffer BLE.
+- Se Issue #583 (`ble_latency` configurável no TOML) for mergeada upstream, o sed do build-f2.yml fica obsoleto — trocar por `[rmk.ble] latency = 0` direto no `dongle/keyboard.toml`.
+- Em um eventual upgrade de RMK, os asserts dos patches vão disparar se os padrões de string mudarem — é o sanity-check de versão embutido.
 - [ ] **Soldar os 3 thumbs esquerdos** (row 3, cols 1 / 3 / 4 = MouseBtn1 / LT(2,Backspace) / LT(1,Space)) e validar — ainda não montados fisicamente; pinos/matrix já declarados no keymap
 - [ ] **Mapear pinos da matriz direita** em `right/keyboard.toml` — mesma TBK Mini + Elite-C + SuperMini, mas em orientação RIGHT (flex reversível)
 - [ ] **Mapear pinos SPI da trackball** PMW3360DM em `right/keyboard.toml` (`sck`, `mosi`, `miso`, `cs`, `cpi`) — vai em pads extras do Elite-C Holder
