@@ -382,7 +382,14 @@ mod keyboard {
             ::esp_hal::Config::default()
                 .with_cpu_clock(::esp_hal::clock::CpuClock::max()),
         );
-        ::esp_alloc::heap_allocator!(size: 72 * 1024);
+        // Heap dobrado de 72 KiB pra 144 KiB. Com 2 peripherals BLE simultâneos
+        // + esp-radio btdm pools (~30 KiB) + trouble-host HostResources + 2×
+        // GattClient com caches + L2CAP buffers + display line-buffer + XZ blob
+        // do Vial + heapless pool, 72 KiB ficava no limite. Segunda conexão
+        // falhava o alloc silenciosamente (esp-alloc não tem panic handler
+        // configurável por default), future nunca acordava → deadlock. ESP32-S3
+        // tem 512 KiB SRAM, 144 KiB de heap deixa folga pra crescer.
+        ::esp_alloc::heap_allocator!(size: 144 * 1024);
         let timg0 = ::esp_hal::timer::timg::TimerGroup::new(p.TIMG0);
         let software_interrupt =
             ::esp_hal::interrupt::software::SoftwareInterruptControl::new(p.SW_INTERRUPT);
@@ -410,10 +417,13 @@ mod keyboard {
         let connector =
             ::esp_radio::ble::controller::BleConnector::new(p.BT, ble_cfg).unwrap();
         // Tamanho do command queue do bt-hci. Example oficial esp32s3_ble
-        // do RMK usa 20; estávamos em 64 sem razão específica. 20 bate com
-        // a config conhecidamente funcional. Reduzir não afeta throughput —
-        // só limita comandos HCI em voo simultâneos, que em prática são poucos.
-        let controller: ::bt_hci::controller::ExternalController<_, 20> =
+        // do RMK usa 20 (single-conn), estávamos em 64 originalmente e
+        // reduzimos em 783c151. Voltamos a 64 porque com 2 conexões fazendo
+        // subscribe + ATT MTU exchange + L2CAP signaling + Connection Update
+        // em paralelo, picos de comandos HCI em voo passam de 20 → backpressure
+        // no outbound → runner segura controller → deadlock virtual (sintoma:
+        // freeze quando o segundo peripheral conecta). +176 B RAM vs 20.
+        let controller: ::bt_hci::controller::ExternalController<_, 64> =
             ::bt_hci::controller::ExternalController::new(connector);
         let ble_addr = [0xC0u8, 0xDE, 0xC0, 0xDE, 0x00, 0x01];
         let mut host_resources = ::rmk::HostResources::new();

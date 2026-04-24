@@ -201,9 +201,18 @@ jobs:
         # mudar isso — o id define o byte do ManufacturerSpecificData no BLE
         # advertisement que o central usa pra distinguir os peripherals.
         # Sem patch: right advertises como id=0, dongle reconhece como left.
+        # Assert defensivo: se o upstream mudar o formato da macro, CI falha
+        # com mensagem clara em vez de silenciosamente produzir um binário
+        # right com id=0 que colide com left.
         run: |
+          set -euo pipefail
           sed -i 's/rmk_peripheral(id = 0)/rmk_peripheral(id = 1)/' rmk-right/src/peripheral.rs
-          grep 'rmk_peripheral' rmk-right/src/peripheral.rs
+          if ! grep -q 'rmk_peripheral(id = 1)' rmk-right/src/peripheral.rs; then
+            echo "ERRO: sed não aplicou — formato da macro rmk_peripheral mudou no template?"
+            grep 'rmk_peripheral' rmk-right/src/peripheral.rs || true
+            exit 1
+          fi
+          echo "OK — right peripheral configurado com id=1"
       - name: Vendor + patch RMK (break no write error do peripheral pra reconnect)
         # Mesma correção aplicada no build-left: `.write(&e).await.ok();` em
         # `rmk/src/split/peripheral.rs:173` silencia erros de notify GATT e
