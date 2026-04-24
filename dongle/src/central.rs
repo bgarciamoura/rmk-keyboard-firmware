@@ -399,8 +399,14 @@ mod keyboard {
         // Histórico: P9 (default implícito) em 0f64398 foi revertido junto
         // com o fix do peripheral; testando P20 isolado agora, peripheral
         // de volta ao baseline sem default_tx_power.
+        // max_connections explícito: default esp-radio é 6, mas o caminho
+        // "Config::default" + duas `central.connect()` concorrentes do
+        // trouble-host não é coberto por teste oficial upstream. Setar 10
+        // (teto do controller ESP32-S3) reduz risco de fallback implícito
+        // do NPL btdm quando a segunda conexão é iniciada.
         let ble_cfg = ::esp_radio::ble::Config::default()
-            .with_default_tx_power(::esp_radio::ble::TxPower::P20);
+            .with_default_tx_power(::esp_radio::ble::TxPower::P20)
+            .with_max_connections(10);
         let connector =
             ::esp_radio::ble::controller::BleConnector::new(p.BT, ble_cfg).unwrap();
         // Tamanho do command queue do bt-hci. Example oficial esp32s3_ble
