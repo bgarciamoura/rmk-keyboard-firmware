@@ -403,7 +403,11 @@ mod keyboard {
             .with_default_tx_power(::esp_radio::ble::TxPower::P20);
         let connector =
             ::esp_radio::ble::controller::BleConnector::new(p.BT, ble_cfg).unwrap();
-        let controller: ::bt_hci::controller::ExternalController<_, 64> =
+        // Tamanho do command queue do bt-hci. Example oficial esp32s3_ble
+        // do RMK usa 20; estávamos em 64 sem razão específica. 20 bate com
+        // a config conhecidamente funcional. Reduzir não afeta throughput —
+        // só limita comandos HCI em voo simultâneos, que em prática são poucos.
+        let controller: ::bt_hci::controller::ExternalController<_, 20> =
             ::bt_hci::controller::ExternalController::new(connector);
         let ble_addr = [0xC0u8, 0xDE, 0xC0, 0xDE, 0x00, 0x01];
         let mut host_resources = ::rmk::HostResources::new();
