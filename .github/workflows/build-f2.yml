@@ -96,46 +96,63 @@ jobs:
           cp.write_text(csrc.replace(needle, "gatt-client-notification-queue-size-8"))
           print("OK Cargo.toml: gatt-client-notification-queue-size 4 → 8")
 
-          # --- Patch 3: central.rs — stagger peripheral managers por peri_id
+          # --- Patch 3: central.rs — SEMPRE parar scan antes de connect
           #
-          # Problema: quando 2 peripherals tentam conectar simultaneamente ao
-          # dongle ESP32-S3, o executor do central TRAVA (uptime do display
-          # congela). Diagnóstico: race entre `scan_peripherals` e o
-          # `central.connect()` de dois managers paralelos no controller
-          # esp-radio/bt-hci do ESP32-S3. O SCANNING_MUTEX só cobre a fase
-          # de `connect()` — se o scan_peripherals está no meio de um HCI
-          # cmd quando o segundo manager tenta connect, controller hangs.
+          # Documentação oficial Espressif confirma (ESP-IDF BLE multiconn guide
+          # + issue esp-idf#826): "Connect, scan and advertise can't occupy
+          # radio at the same time. You MUST explicitly call the stop scanning
+          # function before attempting to connect to each peripheral." Sem
+          # isso, controller btdm retorna GATT_BUSY/ERROR ou simplesmente
+          # trava. No nRF-SDC (exemplo nrf52840_ble_split_dongle) isso é
+          # tolerado, por isso upstream não força stop scan no happy path.
           #
-          # Fix: stagger temporal. Peripheral 0 (left) começa imediatamente,
-          # peripheral 1 (right) aguarda 1.5s antes de primeira tentativa.
-          # Serializa na prática sem precisar expandir mutex upstream.
+          # Código original:
+          #   if let Ok(_guard) = SCANNING_MUTEX.try_lock() {
+          #       central.connect(...).await
+          #   } else {
+          #       STOP_SCANNING.signal(());
+          #       let _guard = SCANNING_MUTEX.lock().await;
+          #       Timer::after_millis(100).await;
+          #       central.connect(...).await
+          #   }
           #
-          # Custo: boot do segundo peripheral ~1.5s mais lento. Após os
-          # dois pareados e peer_address salvo em storage, reconexões
-          # posteriores já têm endereço em cache e o stagger só importa
-          # no primeiro pareamento ou após erase-region.
+          # O problema é o caminho `try_lock` — quando o mutex está disponível
+          # (e.g., scan está inativo naquele exato instante mas a flag interna
+          # do controller ainda não propagou), pula stop-scan e chama connect
+          # com o radio "ainda cheirando a scan". No ESP32-S3 btdm isso trava.
+          #
+          # Fix: remover o happy path do try_lock. SEMPRE sinalizar STOP_SCANNING
+          # e aguardar o lock + 200ms de settle. Custo: boot do primeiro
+          # peripheral é 100-200ms mais lento (insignificante no uso humano).
           p2 = Path("/tmp/rmk-vendored/rmk/src/split/ble/central.rs")
           src2 = p2.read_text()
-          # Ancora entre o trace! inicial e o `loop {` principal do
-          # run_ble_peripheral_manager (antes do primeiro statement real).
           old = (
-              "    trace!(\"SPLIT_MESSAGE_MAX_SIZE: {}\", SPLIT_MESSAGE_MAX_SIZE);\n"
-              "\n"
-              "    loop {\n"
+              "            if let Ok(_guard) = SCANNING_MUTEX.try_lock() {\n"
+              "                info!(\"Start connecting to peripheral {}\", peri_id);\n"
+              "                central.connect(&config).await\n"
+              "            } else {\n"
+              "                STOP_SCANNING.signal(());\n"
+              "                let _guard = SCANNING_MUTEX.lock().await;\n"
+              "                // Wait a little bit to ensure that the scanning has been fully stopped\n"
+              "                embassy_time::Timer::after_millis(100).await;\n"
+              "                info!(\"Start connecting to peripheral {}\", peri_id);\n"
+              "                central.connect(&config).await\n"
+              "            }\n"
           )
           new = (
-              "    trace!(\"SPLIT_MESSAGE_MAX_SIZE: {}\", SPLIT_MESSAGE_MAX_SIZE);\n"
-              "\n"
-              "    // Stagger: evita race HCI no ESP32-S3 quando múltiplos peripherals\n"
-              "    // tentam conectar ao mesmo tempo. Patch injetado pelo CI do\n"
-              "    // rmk-keyboard-firmware (build-f2.yml).\n"
-              "    embassy_time::Timer::after_millis((peri_id as u64) * 5000).await;\n"
-              "\n"
-              "    loop {\n"
+              "            // ESP32-S3 btdm REQUER stop scan explícito antes de connect.\n"
+              "            // Patch do CI do rmk-keyboard-firmware (build-f2.yml):\n"
+              "            // remove o happy path do try_lock pra garantir ordenação.\n"
+              "            STOP_SCANNING.signal(());\n"
+              "            let _guard = SCANNING_MUTEX.lock().await;\n"
+              "            // Wait a little bit to ensure that the scanning has been fully stopped\n"
+              "            embassy_time::Timer::after_millis(200).await;\n"
+              "            info!(\"Start connecting to peripheral {}\", peri_id);\n"
+              "            central.connect(&config).await\n"
           )
-          assert old in src2, "Padrão do run_ble_peripheral_manager não encontrado — upstream mudou"
+          assert old in src2, "Padrão do try_lock/else SCANNING_MUTEX não encontrado — upstream mudou"
           p2.write_text(src2.replace(old, new))
-          print("OK central.rs: stagger de 5000ms * peri_id inserido no manager")
+          print("OK central.rs: stop-scan forçado sempre antes de central.connect()")
           PYEOF
           cat >> dongle/Cargo.toml <<'EOF'
 
