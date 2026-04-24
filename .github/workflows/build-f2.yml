@@ -38,10 +38,11 @@ jobs:
       - name: Install espflash
         run: cargo install espflash --locked
 
-      - name: Vendor + patch RMK (latency=0 em todos os presets + queue GATT 8)
-        # Três correções no RMK upstream pra estabilidade do link split BLE
+      - name: Vendor + patch RMK (latency=0 + queue GATT 8 + CONNECT_MUTEX)
+        # Quatro correções no RMK upstream pra estabilidade do link split BLE
         # (sintomas anteriores: ~2s de latência inicial, teclas travadas,
-        # drops intermitentes).
+        # drops intermitentes, e freeze total ao ligar ambos peripherals
+        # simultaneamente).
         #
         # 1) max_latency: N → 0 em TODAS as ocorrências de central.rs
         #    (regex cobre os 3 presets: default, sleep-connected-to-host,
@@ -61,6 +62,23 @@ jobs:
         #    key-down/up antes do central drenar) → key-up perdido = tecla
         #    travada. +200 B de RAM, throughput dobrado.
         #
+        # 4) CONNECT_MUTEX + sempre stop-scan antes de connect (central.rs).
+        #    Root cause do freeze quando ambos peripherals ligam juntos:
+        #    `SCANNING_MUTEX` original só cobria `central.connect()` em si;
+        #    era liberado assim que connect retornava. Enquanto isso, o
+        #    `run_central_manager_task` do primeiro peripheral ainda rodava
+        #    GATT discovery + `update_ble_phy` + `update_conn_params` — e
+        #    o segundo manager, livre do SCANNING_MUTEX, chamava seu próprio
+        #    `central.connect()`. O controller btdm do ESP32-S3 NÃO suporta
+        #    `HCI_LE_Create_Connection` concorrente com GATT/PHY/conn_params
+        #    update em outra conexão → retorna Command Disallowed (0x0C)
+        #    e trava a task do host, levando junto USB HID + display.
+        #    Fix: novo `CONNECT_MUTEX` que cobre connect + 3s de settle
+        #    (GATT+PHY+conn_params terminam bem dentro desse prazo). Também
+        #    remove o happy path `try_lock` — SEMPRE sinaliza STOP_SCANNING
+        #    e pega SCANNING_MUTEX, porque btdm rejeita connect com radio
+        #    "ainda cheirando a scan" (ESP-IDF BLE multiconn guide docs).
+        #
         # Histórico de tentativas anteriores (não repetir):
         # - max_latency=0 + async_matrix ON + interval 7.5ms (7c47edb):
         #   peripheral dormia e não sustentava TX → disconnect loop.
@@ -69,6 +87,10 @@ jobs:
         #   a ser seguro.
         # - interval 15ms / latency 4 / supervision 30s (5ffc535):
         #   atenuou drops em sleep mas introduziu os ~2s de delay inicial.
+        # - stagger `Timer::after_secs(peri_id * 5)` no início do manager:
+        #   funciona como workaround mas não resolve re-conexões simultâneas
+        #   após um drop (ambos tentam reconectar imediatamente). CONNECT_MUTEX
+        #   resolve ambos os cenários.
         working-directory: .
         run: |
           set -euxo pipefail
@@ -96,37 +118,63 @@ jobs:
           cp.write_text(csrc.replace(needle, "gatt-client-notification-queue-size-8"))
           print("OK Cargo.toml: gatt-client-notification-queue-size 4 → 8")
 
-          # --- Patch 3: central.rs — SEMPRE parar scan antes de connect
+          # --- Patch 3: central.rs — CONNECT_MUTEX + stop-scan sempre antes de connect
           #
-          # Documentação oficial Espressif confirma (ESP-IDF BLE multiconn guide
-          # + issue esp-idf#826): "Connect, scan and advertise can't occupy
-          # radio at the same time. You MUST explicitly call the stop scanning
-          # function before attempting to connect to each peripheral." Sem
-          # isso, controller btdm retorna GATT_BUSY/ERROR ou simplesmente
-          # trava. No nRF-SDC (exemplo nrf52840_ble_split_dongle) isso é
-          # tolerado, por isso upstream não força stop scan no happy path.
+          # Root cause do freeze quando ambos peripherals ligam juntos:
+          # O `SCANNING_MUTEX` do upstream é liberado assim que `central.connect()`
+          # retorna. Mas o `run_central_manager_task` subsequente ainda roda
+          # GATT discovery + `update_ble_phy` + `update_conn_params` por ~1-2s.
+          # Nesse intervalo, o outro manager, sem nada o bloqueando, chama seu
+          # próprio `central.connect()`. O controller btdm do ESP32-S3 recebe
+          # um segundo `HCI_LE_Create_Connection` com setup ainda em progresso
+          # e retorna Command Disallowed (0x0C); trouble-host fica esperando
+          # eternamente o `Connection_Complete` que nunca vem → deadlock do
+          # executor Embassy → USB HID + display morrem junto.
           #
-          # Código original:
-          #   if let Ok(_guard) = SCANNING_MUTEX.try_lock() {
-          #       central.connect(...).await
-          #   } else {
-          #       STOP_SCANNING.signal(());
-          #       let _guard = SCANNING_MUTEX.lock().await;
-          #       Timer::after_millis(100).await;
-          #       central.connect(...).await
-          #   }
+          # Também: ESP-IDF BLE multiconn guide (+ issue esp-idf#826) confirma
+          # "Connect, scan and advertise can't occupy radio at the same time.
+          # You MUST explicitly call the stop scanning function before attempting
+          # to connect". O happy path `try_lock` do upstream pula stop-scan
+          # quando o mutex está disponível, o que não garante que o scanner
+          # interno do controller btdm terminou — ESP32-S3 rejeita.
           #
-          # O problema é o caminho `try_lock` — quando o mutex está disponível
-          # (e.g., scan está inativo naquele exato instante mas a flag interna
-          # do controller ainda não propagou), pula stop-scan e chama connect
-          # com o radio "ainda cheirando a scan". No ESP32-S3 btdm isso trava.
+          # Fix combinado:
+          # (a) Novo `CONNECT_MUTEX` serializa connect + setup inicial entre N
+          #     managers concorrentes. Segurado por todo o `central.connect()`
+          #     e mais 3s de settle depois (GATT+PHY+conn_params terminam bem
+          #     dentro desse prazo).
+          # (b) Remove o happy path do `try_lock`. SEMPRE sinaliza STOP_SCANNING
+          #     e espera SCANNING_MUTEX + 200ms de settle antes do connect.
+          # (c) SCANNING_MUTEX é liberado APÓS o settle de 3s — assim o scanner
+          #     volta ao ar a tempo do próximo peripheral ser achado, mas não
+          #     durante o setup do link recém-estabelecido.
           #
-          # Fix: remover o happy path do try_lock. SEMPRE sinalizar STOP_SCANNING
-          # e aguardar o lock + 200ms de settle. Custo: boot do primeiro
-          # peripheral é 100-200ms mais lento (insignificante no uso humano).
+          # Custo: o 2º peripheral espera ~3-5s depois do 1º antes de seu
+          # próprio connect. Invisível no uso humano (o usuário liga as duas
+          # metades uma de cada vez mesmo).
           p2 = Path("/tmp/rmk-vendored/rmk/src/split/ble/central.rs")
           src2 = p2.read_text()
+
+          # (1) Inserir `static CONNECT_MUTEX` logo após `static SCANNING_MUTEX`.
+          mutex_anchor = "static SCANNING_MUTEX: Mutex<crate::RawMutex, ()> = Mutex::new(());\n"
+          mutex_insert = (
+              "\n"
+              "/// Serializes BLE central.connect() + initial GATT/PHY/conn_params\n"
+              "/// setup across multiple peripheral managers. Patch injected by the\n"
+              "/// rmk-keyboard-firmware CI (build-f2.yml) to fix concurrent-connect\n"
+              "/// freeze on ESP32-S3 btdm controller.\n"
+              "static CONNECT_MUTEX: Mutex<crate::RawMutex, ()> = Mutex::new(());\n"
+          )
+          assert mutex_anchor in src2, "Âncora `static SCANNING_MUTEX` não encontrada — upstream mudou"
+          assert "static CONNECT_MUTEX" not in src2, "CONNECT_MUTEX já existe no upstream — patch obsoleto"
+          src2 = src2.replace(mutex_anchor, mutex_anchor + mutex_insert, 1)
+
+          # (2) Reescrever o bloco try_lock/else + todo o `match with_timeout` que
+          # contém a lógica de connect+run_central_manager_task, pra segurar o
+          # CONNECT_MUTEX durante connect + 3s de settle.
           old = (
+              "        // Connect to peripheral\n"
+              "        match with_timeout(Duration::from_secs(5), async {\n"
               "            if let Ok(_guard) = SCANNING_MUTEX.try_lock() {\n"
               "                info!(\"Start connecting to peripheral {}\", peri_id);\n"
               "                central.connect(&config).await\n"
@@ -138,21 +186,99 @@ jobs:
               "                info!(\"Start connecting to peripheral {}\", peri_id);\n"
               "                central.connect(&config).await\n"
               "            }\n"
+              "        })\n"
+              "        .await\n"
+              "        {\n"
+              "            Ok(Ok(conn)) => {\n"
+              "                info!(\"Connected to peripheral {}\", peri_id);\n"
+              "\n"
+              "                publish_event(PeripheralConnectedEvent {\n"
+              "                    id: peri_id,\n"
+              "                    connected: true,\n"
+              "                });\n"
+              "\n"
+              "                if let Err(e) =\n"
+              "                    run_central_manager_task::<_, _, ROW, COL, ROW_OFFSET, COL_OFFSET>(peri_id, stack, &conn).await\n"
+              "                {\n"
+              "                    #[cfg(feature = \"defmt\")]\n"
+              "                    let e = defmt::Debug2Format(&e);\n"
+              "                    error!(\"BLE central error: {:?}\", e);\n"
+              "                }\n"
+              "            }\n"
+              "            Ok(Err(e)) => {\n"
+              "                #[cfg(feature = \"defmt\")]\n"
+              "                let e = defmt::Debug2Format(&e);\n"
+              "                error!(\"Connect to peripheral {} error: {:?}\", peri_id, e);\n"
+              "            }\n"
+              "            Err(_) => {\n"
+              "                // Connect to peripheral timeout\n"
+              "                warn!(\"Connect to peripheral {} timeout, clearing\", peri_id);\n"
+              "                if let Some(addr) = addrs.borrow_mut().get_mut(peri_id) {\n"
+              "                    *addr = None\n"
+              "                };\n"
+              "            }\n"
+              "        }\n"
           )
           new = (
-              "            // ESP32-S3 btdm REQUER stop scan explícito antes de connect.\n"
-              "            // Patch do CI do rmk-keyboard-firmware (build-f2.yml):\n"
-              "            // remove o happy path do try_lock pra garantir ordenação.\n"
-              "            STOP_SCANNING.signal(());\n"
-              "            let _guard = SCANNING_MUTEX.lock().await;\n"
-              "            // Wait a little bit to ensure that the scanning has been fully stopped\n"
-              "            embassy_time::Timer::after_millis(200).await;\n"
-              "            info!(\"Start connecting to peripheral {}\", peri_id);\n"
-              "            central.connect(&config).await\n"
+              "        // Patch CI rmk-keyboard-firmware (build-f2.yml):\n"
+              "        // CONNECT_MUTEX serializa connect+setup entre managers paralelos.\n"
+              "        // Segura até 3s depois do connect retornar, tempo suficiente pra\n"
+              "        // GATT discovery + update_ble_phy + update_conn_params terminarem\n"
+              "        // em `run_central_manager_task` antes do próximo manager tentar connect.\n"
+              "        let _connect_guard = CONNECT_MUTEX.lock().await;\n"
+              "\n"
+              "        // ESP32-S3 btdm REQUER stop scan explícito antes de connect.\n"
+              "        // Happy path `try_lock` do upstream removido — sempre sinaliza stop.\n"
+              "        STOP_SCANNING.signal(());\n"
+              "        let _scan_guard = SCANNING_MUTEX.lock().await;\n"
+              "        embassy_time::Timer::after_millis(200).await;\n"
+              "        info!(\"Start connecting to peripheral {}\", peri_id);\n"
+              "\n"
+              "        // Connect to peripheral\n"
+              "        match with_timeout(Duration::from_secs(5), central.connect(&config)).await {\n"
+              "            Ok(Ok(conn)) => {\n"
+              "                info!(\"Connected to peripheral {}\", peri_id);\n"
+              "\n"
+              "                publish_event(PeripheralConnectedEvent {\n"
+              "                    id: peri_id,\n"
+              "                    connected: true,\n"
+              "                });\n"
+              "\n"
+              "                // Settle: GATT discovery + PHY + conn_params terminam aqui.\n"
+              "                // Depois, libera ambos mutexes explicitamente — scanner volta\n"
+              "                // ao ar pro próximo peripheral ser achado e próximo connect\n"
+              "                // pode começar em outro manager.\n"
+              "                embassy_time::Timer::after_millis(3000).await;\n"
+              "                drop(_scan_guard);\n"
+              "                drop(_connect_guard);\n"
+              "\n"
+              "                if let Err(e) =\n"
+              "                    run_central_manager_task::<_, _, ROW, COL, ROW_OFFSET, COL_OFFSET>(peri_id, stack, &conn).await\n"
+              "                {\n"
+              "                    #[cfg(feature = \"defmt\")]\n"
+              "                    let e = defmt::Debug2Format(&e);\n"
+              "                    error!(\"BLE central error: {:?}\", e);\n"
+              "                }\n"
+              "            }\n"
+              "            Ok(Err(e)) => {\n"
+              "                #[cfg(feature = \"defmt\")]\n"
+              "                let e = defmt::Debug2Format(&e);\n"
+              "                error!(\"Connect to peripheral {} error: {:?}\", peri_id, e);\n"
+              "            }\n"
+              "            Err(_) => {\n"
+              "                // Connect to peripheral timeout\n"
+              "                warn!(\"Connect to peripheral {} timeout, clearing\", peri_id);\n"
+              "                if let Some(addr) = addrs.borrow_mut().get_mut(peri_id) {\n"
+              "                    *addr = None\n"
+              "                };\n"
+              "            }\n"
+              "        }\n"
           )
-          assert old in src2, "Padrão do try_lock/else SCANNING_MUTEX não encontrado — upstream mudou"
-          p2.write_text(src2.replace(old, new))
-          print("OK central.rs: stop-scan forçado sempre antes de central.connect()")
+          assert old in src2, "Padrão do match with_timeout/connect não encontrado — upstream mudou"
+          src2 = src2.replace(old, new)
+
+          p2.write_text(src2)
+          print("OK central.rs: CONNECT_MUTEX + stop-scan forçado sempre antes de central.connect()")
           PYEOF
           cat >> dongle/Cargo.toml <<'EOF'
 
