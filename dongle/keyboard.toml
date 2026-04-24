@@ -20,11 +20,7 @@ vendor_id = 0x4c4b
 product_id = 0x4643
 manufacturer = "RMK"
 chip = "esp32s3"
-# DIAG TEMP: usb_enable=false pra manter USB-Serial/JTAG vivo pra logs via
-# espflash monitor. Com usb_enable=true (produção), Usb::new() toma o PHY
-# do USB OTG e o JTAG-Serial é derrubado — logs após init BLE somem.
-# Reverter pra true quando o diagnóstico terminar.
-usb_enable = false
+usb_enable = true
 
 [layout]
 rows = 4

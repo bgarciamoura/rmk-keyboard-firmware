@@ -139,44 +139,20 @@ jobs:
               "                central.connect(&config).await\n"
               "            }\n"
           )
-          # DIAG: logs em cada stage pra identificar onde o executor trava
-          # no ESP32-S3 quando o 2º peripheral conecta. Cada info!() imprime
-          # peri_id + stage_num pra serial (espflash monitor). Quando travar,
-          # a última linha do serial indica a STAGE onde parou.
           new = (
-              "            info!(\"[DIAG] peri {} STAGE 1: signaling STOP_SCANNING\", peri_id);\n"
+              "            // ESP32-S3 btdm REQUER stop scan explícito antes de connect.\n"
+              "            // Patch do CI do rmk-keyboard-firmware (build-f2.yml):\n"
+              "            // remove o happy path do try_lock pra garantir ordenação.\n"
               "            STOP_SCANNING.signal(());\n"
-              "            info!(\"[DIAG] peri {} STAGE 2: acquiring SCANNING_MUTEX\", peri_id);\n"
               "            let _guard = SCANNING_MUTEX.lock().await;\n"
-              "            info!(\"[DIAG] peri {} STAGE 3: mutex acquired, settle 200ms\", peri_id);\n"
+              "            // Wait a little bit to ensure that the scanning has been fully stopped\n"
               "            embassy_time::Timer::after_millis(200).await;\n"
-              "            info!(\"[DIAG] peri {} STAGE 4: calling central.connect()\", peri_id);\n"
-              "            let __diag_conn_result = central.connect(&config).await;\n"
-              "            info!(\"[DIAG] peri {} STAGE 5: central.connect() returned\", peri_id);\n"
-              "            __diag_conn_result\n"
+              "            info!(\"Start connecting to peripheral {}\", peri_id);\n"
+              "            central.connect(&config).await\n"
           )
           assert old in src2, "Padrão do try_lock/else SCANNING_MUTEX não encontrado — upstream mudou"
           p2.write_text(src2.replace(old, new))
-          print("OK central.rs: DIAG — logs por stage inseridos antes/depois de central.connect()")
-
-          # DIAG: logs adicionais em volta do run_central_manager_task
-          # (pós-connect, onde GATT discovery acontece)
-          old_post = (
-              "                if let Err(e) =\n"
-              "                    run_central_manager_task::<_, _, ROW, COL, ROW_OFFSET, COL_OFFSET>(peri_id, stack, &conn).await\n"
-              "                {\n"
-          )
-          new_post = (
-              "                info!(\"[DIAG] peri {} STAGE 6: entering run_central_manager_task\", peri_id);\n"
-              "                let __diag_mgr = run_central_manager_task::<_, _, ROW, COL, ROW_OFFSET, COL_OFFSET>(peri_id, stack, &conn).await;\n"
-              "                info!(\"[DIAG] peri {} STAGE 7: run_central_manager_task returned\", peri_id);\n"
-              "                if let Err(e) = __diag_mgr\n"
-              "                {\n"
-          )
-          assert old_post in src2 or old_post in p2.read_text(), "Padrão do run_central_manager_task não encontrado"
-          current = p2.read_text()
-          p2.write_text(current.replace(old_post, new_post))
-          print("OK central.rs: DIAG — logs stage 6/7 inseridos em volta de run_central_manager_task")
+          print("OK central.rs: stop-scan forçado sempre antes de central.connect()")
           PYEOF
           cat >> dongle/Cargo.toml <<'EOF'
 
